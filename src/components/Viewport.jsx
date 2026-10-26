@@ -7,6 +7,9 @@ const LOG_EVERY = 6000;
 const LOG_LINES = 5;
 const TAG_PERIOD = 24000;
 const TAG_SLOTS = 3;
+const PITCH_SHIFT = 1;
+const YAW_SHIFT = 0.15;
+const BANK = 6;
 
 const TAU = Math.PI * 2;
 const RAD = Math.PI / 180;
@@ -17,6 +20,7 @@ export function Viewport() {
   const hudRef = useRef(null);
   const sunRef = useRef(null);
   const moonRef = useRef(null);
+  const stripRef = useRef(null);
   const nsfwRef = useRef(nsfw);
 
   useEffect(() => {
@@ -47,6 +51,7 @@ export function Viewport() {
     let h = 0;
     let raf = 0;
     let frame = 0;
+    let slew = 0;
 
     function resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -72,6 +77,13 @@ export function Viewport() {
       bounds.bottom = foot ? Math.min(h, foot.getBoundingClientRect().top) : h;
     }
 
+    function readSlew() {
+      const strip = stripRef.current;
+      if (!strip || !h) return;
+      const ty = new DOMMatrixReadOnly(getComputedStyle(strip).transform).m42;
+      slew = Math.max(0, Math.min(1, 1 + ty / h));
+    }
+
     function onMove(event) {
       pointer.x = event.clientX / w;
       pointer.y = event.clientY / h;
@@ -84,8 +96,8 @@ export function Viewport() {
       const ox = (pointer.sx - 0.5) * -26;
       const oy = (pointer.sy - 0.5) * -18;
       for (const s of stars) {
-        const x = ((((s.x + drift * s.z) % 1) + 1) % 1) * w + ox * s.z;
-        const y = s.y * h + oy * s.z;
+        const x = ((((s.x + drift * s.z + slew * YAW_SHIFT * s.z) % 1) + 1) % 1) * w + ox * s.z;
+        const y = ((((s.y + slew * PITCH_SHIFT * s.z) % 1) + 1) % 1) * h + oy * s.z;
         s.px = x;
         s.py = y;
         const a = 0.35 + 0.15 * Math.sin(s.tw + t * 0.0003 * s.z) + 0.45 * s.z;
@@ -182,9 +194,9 @@ export function Viewport() {
       const cy = h * 0.5 + (pointer.sy - 0.5) * 16;
       const R = Math.min(w, h) * 0.38;
       const ppd = R / 55;
-      const hdg = headingAt(now);
-      const roll = Math.sin(t * 0.00008) * 1 * RAD;
-      const pitch = Math.sin(t * 0.00005) * 2;
+      const hdg = headingAt(now) - (slew * YAW_SHIFT * w) / ppd;
+      const roll = (Math.sin(t * 0.00008) + Math.sin(Math.PI * slew) * BANK) * RAD;
+      const pitch = Math.sin(t * 0.00005) * 2 + (slew * PITCH_SHIFT * h) / ppd;
 
       g.save();
       g.translate(cx, cy);
@@ -215,7 +227,8 @@ export function Viewport() {
       }
 
       g.rotate(roll);
-      for (let p = -40; p <= 40; p += 10) {
+      const first = Math.ceil((pitch - 50) / 10) * 10;
+      for (let p = first; p <= pitch + 50; p += 10) {
         const y = -(p - pitch) * ppd;
         if (Math.abs(y) > R * 0.85) continue;
         const half = Math.sqrt(R * R - y * y) * 0.9;
@@ -278,6 +291,7 @@ export function Viewport() {
       pointer.sx += (pointer.x - pointer.sx) * 0.015;
       pointer.sy += (pointer.y - pointer.sy) * 0.015;
       if (frame % 15 === 0) readColors();
+      readSlew();
       drawStars(elapsed);
       drawHud(elapsed, Date.now());
       frame += 1;
@@ -299,7 +313,7 @@ export function Viewport() {
   return (
     <div className="viewport" aria-hidden="true">
       <div className="sky" data-body={nsfw ? "moon" : "sun"}>
-        <div className="sky__strip">
+        <div ref={stripRef} className="sky__strip">
           <div className="sky__scene sky__scene--moon">
             <div className="nebula" />
             <div ref={moonRef} className="moon" />
