@@ -6,7 +6,7 @@ export const nsfwCatalog = {
   gallery: {
     kicker: "Adult pictures",
     title: "Gallery",
-    deck: "Figure studies and color work.",
+    deck: "Digital Illustrations",
     works: [
       { id: "nsfw-01", index: "01", title: "Orbit", medium: "Figure", year: "2026", motif: "orbit" },
       { id: "nsfw-02", index: "02", title: "Heat", medium: "Pigment", year: "2026", motif: "heat" },
@@ -19,7 +19,7 @@ export const nsfwCatalog = {
   comics: {
     kicker: "Adult comics",
     title: "Comics",
-    deck: "Adult comics and short stories.",
+    deck: "Adult comics.",
     items: [
       { id: "nc1", index: "01", title: "Issue 01", detail: "32 pages.", blurb: lorem[0], motif: "heat", href: null },
       { id: "nc2", index: "02", title: "Short 01", detail: "12 pages.", blurb: lorem[1], motif: "orbit", href: null },

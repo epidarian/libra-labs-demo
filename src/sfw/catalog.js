@@ -6,7 +6,7 @@ export const sfwCatalog = {
   gallery: {
     kicker: "Pictures",
     title: "Gallery",
-    deck: "Recent pictures from the studio.",
+    deck: "Digital Illustrations",
     works: [
       { id: "sfw-01", index: "01", title: "Orbit", medium: "Pigment", year: "2026", motif: "orbit" },
       { id: "sfw-02", index: "02", title: "Field", medium: "Photograph", year: "2026", motif: "field" },
@@ -19,7 +19,7 @@ export const sfwCatalog = {
   comics: {
     kicker: "Comics",
     title: "Comics",
-    deck: "Print comics and short stories.",
+    deck: "Print comics",
     items: [
       { id: "c1", index: "01", title: "Issue 01", detail: "24 pages. Print.", blurb: lorem[0], motif: "orbit", href: null },
       { id: "c2", index: "02", title: "Issue 02", detail: "24 pages. Print.", blurb: lorem[1], motif: "meridian", href: null },
