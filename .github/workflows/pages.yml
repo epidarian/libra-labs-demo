@@ -28,9 +28,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Require a static index
+        run: test -f dist/client/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: dist/client
       - id: deployment
         uses: actions/deploy-pages@v4
