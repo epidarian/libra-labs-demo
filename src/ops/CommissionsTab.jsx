@@ -39,6 +39,18 @@ function Request({ item, linear, run }) {
         <dd>{item.venue || "-"}</dd>
       </dl>
       <p className="ops__message">{item.message}</p>
+      {item.files?.length ? (
+        <div className="ops__refs">
+          {item.files.map((file) => {
+            const href = `/api/ops/commissions/${item.id}/files/${file.id}`;
+            return (
+              <a key={file.id} className="ops__ref" href={href} target="_blank" rel="noreferrer" title={file.name}>
+                <img src={href} alt={file.name} loading="lazy" />
+              </a>
+            );
+          })}
+        </div>
+      ) : null}
       <footer className="ops__actions">
         <select
           className="ops__select"

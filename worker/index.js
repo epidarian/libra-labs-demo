@@ -1,5 +1,6 @@
 import { handleAuth } from "./auth.js";
 import { handleContent } from "./content.js";
+import { clearDemoData, demoAllowed } from "./demo.js";
 import { handleMedia } from "./gallery.js";
 import { handleOps } from "./ops.js";
 import { handlePatreon } from "./patreon.js";
@@ -8,6 +9,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
+      if (!demoAllowed(env)) await clearDemoData(env);
       if (url.pathname.startsWith("/api/auth/")) return await handleAuth(request, env, url);
       if (url.pathname === "/api/patreon") return await handlePatreon(request, env);
       if (url.pathname === "/api/content" || url.pathname === "/api/commissions") {

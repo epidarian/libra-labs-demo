@@ -15,4 +15,4 @@ export const conventions = {
   ],
 };
 
-export const commissionChecklist = ["Size", "Deadline", "Where it will be shown"];
+export const commissionChecklist = ["Size", "Deadline", "Where it will be shown", "Reference images"];

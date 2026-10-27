@@ -1,3 +1,5 @@
+import { demoCleared } from "../demoMode.js";
+
 const KEY = "libra-ops-demo";
 const DEMO_CODE = "cumin";
 
@@ -7,6 +9,7 @@ export function workerAnswered(res) {
 }
 
 export function demoOpsOpen() {
+  if (demoCleared()) return false;
   try {
     return sessionStorage.getItem(KEY) === "1";
   } catch {
@@ -15,6 +18,7 @@ export function demoOpsOpen() {
 }
 
 export function acceptDemoCode(code) {
+  if (demoCleared()) return false;
   if (String(code).trim() !== DEMO_CODE) return false;
   try {
     sessionStorage.setItem(KEY, "1");

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { loadDemoMode } from "../demoMode.js";
 import { acceptDemoCode, workerAnswered } from "./demoAccess.js";
 
 export function NotFound({ onUnlock }) {
@@ -7,6 +8,7 @@ export function NotFound({ onUnlock }) {
   const submit = async (event) => {
     event.preventDefault();
     const code = value;
+    await loadDemoMode();
     const res = await fetch("/api/ops/access", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

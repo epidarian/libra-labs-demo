@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { demoCleared } from "../demoMode.js";
+import { demoOpsOpen } from "./demoAccess.js";
+import { demoOps, demoUpload } from "./demoStore.js";
 
 export async function opsUpload(path, file, fields) {
+  if (!demoCleared() && demoOpsOpen()) return demoUpload(path, file, fields);
   const params = new URLSearchParams(fields);
   const res = await fetch(`/api/ops/${path}?${params}`, {
     method: "PUT",
@@ -13,6 +17,7 @@ export async function opsUpload(path, file, fields) {
 }
 
 export async function ops(path, { method = "GET", body } = {}) {
+  if (!demoCleared() && demoOpsOpen()) return demoOps(path, { method, body });
   const res = await fetch(`/api/ops/${path}`, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,

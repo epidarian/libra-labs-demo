@@ -2,6 +2,9 @@ import { useEffect, useId, useState } from "react";
 import { nsfwCatalog } from "../nsfw/catalog.js";
 import { sfwCatalog } from "../sfw/catalog.js";
 import { ops } from "./api.js";
+import { demoCleared } from "../demoMode.js";
+import { demoOpsOpen } from "./demoAccess.js";
+import { demoContent } from "./demoStore.js";
 import { Notice } from "./Notice.jsx";
 
 const DEFAULTS = { sfw: sfwCatalog.about, nsfw: nsfwCatalog.about };
@@ -23,8 +26,11 @@ export function AboutEditor() {
     setForm(null);
     setMessage(null);
     setError(null);
-    fetch("/api/content")
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("Could not load content."))))
+    (!demoCleared() && demoOpsOpen()
+      ? Promise.resolve(demoContent())
+      : fetch("/api/content").then((res) =>
+          res.ok ? res.json() : Promise.reject(new Error("Could not load content."))
+        ))
       .then((content) => {
         if (cancel) return;
         const custom = content.about?.[rating] ?? null;

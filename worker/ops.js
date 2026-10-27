@@ -111,12 +111,50 @@ async function listCommissions(env) {
   const { results } = await env.DB.prepare(
     "SELECT * FROM commissions ORDER BY created_at DESC"
   ).all();
+  const { results: files } = await env.DB.prepare(
+    "SELECT id, commission_id, name, content_type, bytes FROM commission_files"
+  ).all();
+  const byCommission = new Map();
+  for (const file of files) {
+    const list = byCommission.get(file.commission_id) || [];
+    list.push({ id: file.id, name: file.name, contentType: file.content_type, bytes: file.bytes });
+    byCommission.set(file.commission_id, list);
+  }
   const settings = await readSettings(env);
   return json({
     linear: linearConfigured(env),
     status: settings.commissions ?? null,
-    commissions: results,
+    commissions: results.map((row) => ({ ...row, files: byCommission.get(row.id) || [] })),
   });
+}
+
+async function deleteCommissionFiles(env, id) {
+  const { results } = await env.DB.prepare(
+    "SELECT r2_key FROM commission_files WHERE commission_id = ?"
+  )
+    .bind(id)
+    .all();
+  if (env.GALLERY) {
+    for (const file of results) await env.GALLERY.delete(file.r2_key).catch(() => {});
+  }
+  await env.DB.prepare("DELETE FROM commission_files WHERE commission_id = ?").bind(id).run();
+}
+
+async function serveCommissionFile(env, commissionId, fileId) {
+  const file = await env.DB.prepare(
+    "SELECT r2_key, content_type FROM commission_files WHERE id = ? AND commission_id = ?"
+  )
+    .bind(fileId, commissionId)
+    .first();
+  if (!file) return json({ error: "File not found." }, 404);
+  if (!env.GALLERY) return json({ error: "Image storage is not available." }, 503);
+  const object = await env.GALLERY.get(file.r2_key);
+  if (!object) return json({ error: "File not found." }, 404);
+  const headers = new Headers();
+  if (file.content_type) headers.set("content-type", file.content_type);
+  headers.set("cache-control", "private, no-store");
+  headers.set("x-content-type-options", "nosniff");
+  return new Response(object.body, { headers });
 }
 
 async function updateCommission(env, id, body) {
@@ -136,9 +174,15 @@ async function sendToLinear(env, admin, id) {
   if (!request) return json({ error: "Request not found." }, 404);
   if (request.linear_id) return json({ error: `Already sent as ${request.linear_identifier}.` }, 409);
 
+  const { results: files } = await env.DB.prepare(
+    "SELECT id, name, content_type, bytes, r2_key FROM commission_files WHERE commission_id = ? ORDER BY created_at"
+  )
+    .bind(id)
+    .all();
+
   let issue;
   try {
-    issue = await createCommissionIssue(env, request);
+    issue = await createCommissionIssue(env, request, files);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(JSON.stringify({ message: "linear send failed", id, error: message }));
@@ -149,11 +193,14 @@ async function sendToLinear(env, admin, id) {
   )
     .bind(issue.id, issue.identifier, issue.url, id)
     .run();
+  // Linear holds the copies now; release the R2 hold.
+  await deleteCommissionFiles(env, id);
   console.log(JSON.stringify({ message: "sent to linear", id, issue: issue.identifier, by: admin.id }));
   return json({ ok: true, issue });
 }
 
 async function deleteCommission(env, id) {
+  await deleteCommissionFiles(env, id);
   await env.DB.prepare("DELETE FROM commissions WHERE id = ?").bind(id).run();
   return json({ ok: true });
 }
@@ -289,6 +336,7 @@ export async function handleOps(request, env, url) {
     if (!id && method === "GET") return listCommissions(env);
     if (id === "status" && method === "PUT") return setCommissionStatus(env, body);
     if (id && action === "linear" && method === "POST") return sendToLinear(env, user, id);
+    if (id && action === "files" && extra && method === "GET") return serveCommissionFile(env, id, extra);
     if (id && !action && method === "PATCH") return updateCommission(env, id, body);
     if (id && !action && method === "DELETE") return deleteCommission(env, id);
   }

@@ -7,6 +7,7 @@ import {
   patreonLive,
 } from "../patreon.js";
 import { emailLive } from "../emailAuth.js";
+import { loadDemoMode } from "../demoMode.js";
 
 const PatreonContext = createContext(null);
 const PROFILE_KEY = "libra-patreon";
@@ -36,6 +37,14 @@ export function PatreonProvider({ children }) {
 
   useEffect(() => {
     let cancel = false;
+    loadDemoMode().then((demo) => {
+      if (cancel || demo) return;
+      setProfile((current) => {
+        if (!current?.demo) return current;
+        saveProfile(null);
+        return null;
+      });
+    });
     fetch("/api/auth/session")
       .then(async (res) => {
         if (cancel) return;
@@ -99,11 +108,18 @@ export function PatreonProvider({ children }) {
           return;
         }
         setStatus("connecting");
-        window.setTimeout(() => {
-          setProfile(demoProfile);
-          saveProfile(demoProfile);
-          setStatus("idle");
-        }, 1200);
+        loadDemoMode().then((demo) => {
+          if (!demo) {
+            setError("Patreon is not configured.");
+            setStatus("idle");
+            return;
+          }
+          window.setTimeout(() => {
+            setProfile(demoProfile);
+            saveProfile(demoProfile);
+            setStatus("idle");
+          }, 1200);
+        });
       },
       signInWithEmail: async ({ email, password, create }) => {
         setError(null);

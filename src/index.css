@@ -1781,6 +1781,82 @@ a.directory__item:hover {
   resize: vertical;
 }
 
+.dropzone {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  text-align: center;
+  padding: 18px 16px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border: 1px dashed var(--line);
+  border-left: 4px solid var(--l4);
+  border-radius: 0 12px 12px 0;
+  cursor: pointer;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+.dropzone--active {
+  border-color: var(--l1);
+  background: color-mix(in srgb, var(--l1) 8%, transparent);
+}
+
+.dropzone__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.dropzone__hint {
+  font-size: 0.78rem;
+  font-family: var(--mono);
+}
+
+.dropzone__list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.dropzone__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-left: 3px solid var(--l4);
+  border-radius: 0 10px 10px 0;
+}
+
+.dropzone__name {
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropzone__remove {
+  flex: none;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 .field-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2567,6 +2643,28 @@ a.brand {
   margin: 0;
   max-width: none;
   white-space: pre-wrap;
+}
+
+.ops__refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ops__ref {
+  display: block;
+  width: 96px;
+  height: 96px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.ops__ref img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .ops__form {

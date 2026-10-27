@@ -5,10 +5,21 @@ import { About, Comics, Commissions, Conventions, Gallery, Store } from "./Pages
 
 const pad = (n) => String(n).padStart(2, "0");
 
+function conventionItems(rows) {
+  return rows.map((item, i) => ({
+    id: item.id,
+    index: pad(i + 1),
+    name: item.name,
+    place: item.place,
+    dates: dateRange(item.starts_on, item.ends_on),
+    table: item.table_label || "Table TBA",
+  }));
+}
+
 function withContent(catalog, zone, content) {
   if (!content) return catalog;
   const about = content.about?.[zone];
-  return {
+  const live = {
     ...catalog,
     about: about ? { ...catalog.about, ...about } : catalog.about,
     commissions: content.commissions
@@ -19,15 +30,15 @@ function withContent(catalog, zone, content) {
       : catalog.gallery,
     conventions: {
       ...catalog.conventions,
-      items: content.conventions.map((item, i) => ({
-        id: item.id,
-        index: pad(i + 1),
-        name: item.name,
-        place: item.place,
-        dates: dateRange(item.starts_on, item.ends_on),
-        table: item.table_label || "Table TBA",
-      })),
+      items: conventionItems(content.conventions),
     },
+  };
+  if (content.demo !== false) return live;
+  return {
+    ...live,
+    gallery: content.galleryLive ? live.gallery : { ...catalog.gallery, works: [] },
+    comics: { ...catalog.comics, items: [] },
+    store: { ...catalog.store, items: [] },
   };
 }
 

@@ -8,6 +8,7 @@ import { AboutEditor } from "./AboutEditor.jsx";
 import { CommissionsTab } from "./CommissionsTab.jsx";
 import { ConventionsTab } from "./ConventionsTab.jsx";
 import { GalleryTab } from "./GalleryTab.jsx";
+import { loadDemoMode } from "../demoMode.js";
 import { demoOpsOpen, workerAnswered } from "./demoAccess.js";
 import { NotFound } from "./NotFound.jsx";
 import { siteHref } from "./route.js";
@@ -26,9 +27,11 @@ function useAccess() {
   const [access, setAccess] = useState(null);
 
   const check = useCallback(() => {
-    fetch("/api/ops/access")
-      .then((res) => setAccess(res.ok || (!workerAnswered(res) && demoOpsOpen())))
-      .catch(() => setAccess(demoOpsOpen()));
+    loadDemoMode().then(() => {
+      fetch("/api/ops/access")
+        .then((res) => setAccess(res.ok || (!workerAnswered(res) && demoOpsOpen())))
+        .catch(() => setAccess(demoOpsOpen()));
+    });
   }, []);
 
   useEffect(check, [check, profile?.email]);
