@@ -14,5 +14,3 @@ export const conventions = {
     { id: "cv3", index: "03", name: "Convention name", place: "City", dates: "Dates TBA", table: "Table TBA" },
   ],
 };
-
-export const commissionChecklist = ["Size", "Deadline", "Where it will be shown", "Reference images"];

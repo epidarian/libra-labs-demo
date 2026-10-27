@@ -1,6 +1,6 @@
-export function ModeSwitch({ on, onToggle, offLabel, onLabel, kind }) {
+export function ModeSwitch({ on, onToggle, offLabel, onLabel, kind, disabled = false }) {
   const active = on ? onLabel : offLabel;
-  const name = kind === "rating" ? "Work" : "Light";
+  const name = kind === "rating" ? "Work" : kind === "queue" ? "Commission type" : "Light";
   return (
     <button
       type="button"
@@ -8,6 +8,7 @@ export function ModeSwitch({ on, onToggle, offLabel, onLabel, kind }) {
       data-on={on ? "true" : "false"}
       aria-pressed={on}
       aria-label={`${name}: ${active}`}
+      disabled={disabled}
       onClick={onToggle}
     >
       <span className="switch__thumb" aria-hidden="true" />

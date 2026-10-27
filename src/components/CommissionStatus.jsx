@@ -1,15 +1,48 @@
 import { useEffect, useState } from "react";
 import { useSiteMode } from "../context/SiteMode.jsx";
 
-export function CommissionStatus({ status, updated, link = true }) {
+function useClearance(active) {
+  const [top, setTop] = useState(96);
+  useEffect(() => {
+    const bar = document.querySelector(".topbar");
+    if (!active || !bar) return undefined;
+    const measure = () => setTop(Math.ceil(bar.getBoundingClientRect().height) + 12);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [active]);
+  return top;
+}
+
+export function CommissionStatus({ status, updated, link = true, mini = false }) {
   const { setSection } = useSiteMode();
   const [now, setNow] = useState(() => new Date());
   const open = status === "open";
+  const top = useClearance(mini);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  if (mini) {
+    return (
+      <button
+        type="button"
+        className="feed feed--mini"
+        data-open={open ? "true" : "false"}
+        style={{ top }}
+        onClick={() => setSection("commissions")}
+      >
+        <span className="feed__live">
+          <i aria-hidden="true" />
+          {open ? "Commissions Open" : "Commissions Closed"}
+        </span>
+        <time>{now.toLocaleTimeString([], { hour12: false })}</time>
+      </button>
+    );
+  }
 
   return (
     <section className="feed" data-open={open ? "true" : "false"} aria-label="Commission status">

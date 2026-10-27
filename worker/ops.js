@@ -1,11 +1,10 @@
 import { isAdmin, json, readBody, userForRequest } from "./auth.js";
-import { RATINGS, readSettings, sameOrigin, text, writeSetting } from "./content.js";
+import { handleCommissionOps } from "./commissions.js";
+import { RATINGS, sameOrigin, text, writeSetting } from "./content.js";
 import { handleGalleryRoutes, handleGalleryUpload, normalizeTag } from "./gallery.js";
-import { createCommissionIssue, linearConfigured } from "./linear.js";
 import { codeMatches, hasPass, issuePass } from "./opsPass.js";
 
 const ROLES = ["user", "admin"];
-const COMMISSION_STATES = ["new", "accepted", "declined", "done"];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function dateOrNull(value) {
@@ -105,111 +104,6 @@ async function revokeSessions(env, admin, id) {
   await env.DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id).run();
   console.log(JSON.stringify({ message: "sessions revoked", id, by: admin.id }));
   return json({ ok: true });
-}
-
-async function listCommissions(env) {
-  const { results } = await env.DB.prepare(
-    "SELECT * FROM commissions ORDER BY created_at DESC"
-  ).all();
-  const { results: files } = await env.DB.prepare(
-    "SELECT id, commission_id, name, content_type, bytes FROM commission_files"
-  ).all();
-  const byCommission = new Map();
-  for (const file of files) {
-    const list = byCommission.get(file.commission_id) || [];
-    list.push({ id: file.id, name: file.name, contentType: file.content_type, bytes: file.bytes });
-    byCommission.set(file.commission_id, list);
-  }
-  const settings = await readSettings(env);
-  return json({
-    linear: linearConfigured(env),
-    status: settings.commissions ?? null,
-    commissions: results.map((row) => ({ ...row, files: byCommission.get(row.id) || [] })),
-  });
-}
-
-async function deleteCommissionFiles(env, id) {
-  const { results } = await env.DB.prepare(
-    "SELECT r2_key FROM commission_files WHERE commission_id = ?"
-  )
-    .bind(id)
-    .all();
-  if (env.GALLERY) {
-    for (const file of results) await env.GALLERY.delete(file.r2_key).catch(() => {});
-  }
-  await env.DB.prepare("DELETE FROM commission_files WHERE commission_id = ?").bind(id).run();
-}
-
-async function serveCommissionFile(env, commissionId, fileId) {
-  const file = await env.DB.prepare(
-    "SELECT r2_key, content_type FROM commission_files WHERE id = ? AND commission_id = ?"
-  )
-    .bind(fileId, commissionId)
-    .first();
-  if (!file) return json({ error: "File not found." }, 404);
-  if (!env.GALLERY) return json({ error: "Image storage is not available." }, 503);
-  const object = await env.GALLERY.get(file.r2_key);
-  if (!object) return json({ error: "File not found." }, 404);
-  const headers = new Headers();
-  if (file.content_type) headers.set("content-type", file.content_type);
-  headers.set("cache-control", "private, no-store");
-  headers.set("x-content-type-options", "nosniff");
-  return new Response(object.body, { headers });
-}
-
-async function updateCommission(env, id, body) {
-  if (!COMMISSION_STATES.includes(body?.status)) return json({ error: "Unknown status." }, 400);
-  const { meta } = await env.DB.prepare("UPDATE commissions SET status = ? WHERE id = ?")
-    .bind(body.status, id)
-    .run();
-  if (!meta.changes) return json({ error: "Request not found." }, 404);
-  return json({ ok: true });
-}
-
-async function sendToLinear(env, admin, id) {
-  if (!linearConfigured(env)) {
-    return json({ error: "Linear is not configured. Set LINEAR_API_KEY and LINEAR_TEAM_ID." }, 503);
-  }
-  const request = await env.DB.prepare("SELECT * FROM commissions WHERE id = ?").bind(id).first();
-  if (!request) return json({ error: "Request not found." }, 404);
-  if (request.linear_id) return json({ error: `Already sent as ${request.linear_identifier}.` }, 409);
-
-  const { results: files } = await env.DB.prepare(
-    "SELECT id, name, content_type, bytes, r2_key FROM commission_files WHERE commission_id = ? ORDER BY created_at"
-  )
-    .bind(id)
-    .all();
-
-  let issue;
-  try {
-    issue = await createCommissionIssue(env, request, files);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(JSON.stringify({ message: "linear send failed", id, error: message }));
-    return json({ error: message }, 502);
-  }
-  await env.DB.prepare(
-    "UPDATE commissions SET linear_id = ?, linear_identifier = ?, linear_url = ? WHERE id = ?"
-  )
-    .bind(issue.id, issue.identifier, issue.url, id)
-    .run();
-  // Linear holds the copies now; release the R2 hold.
-  await deleteCommissionFiles(env, id);
-  console.log(JSON.stringify({ message: "sent to linear", id, issue: issue.identifier, by: admin.id }));
-  return json({ ok: true, issue });
-}
-
-async function deleteCommission(env, id) {
-  await deleteCommissionFiles(env, id);
-  await env.DB.prepare("DELETE FROM commissions WHERE id = ?").bind(id).run();
-  return json({ ok: true });
-}
-
-async function setCommissionStatus(env, body) {
-  if (!["open", "closed"].includes(body?.status)) return json({ error: "Unknown status." }, 400);
-  const value = { status: body.status, updated: new Date().toISOString().slice(0, 10) };
-  await writeSetting(env, "commissions", value);
-  return json(value);
 }
 
 function conventionFields(body) {
@@ -333,12 +227,8 @@ export async function handleOps(request, env, url) {
   }
 
   if (resource === "commissions") {
-    if (!id && method === "GET") return listCommissions(env);
-    if (id === "status" && method === "PUT") return setCommissionStatus(env, body);
-    if (id && action === "linear" && method === "POST") return sendToLinear(env, user, id);
-    if (id && action === "files" && extra && method === "GET") return serveCommissionFile(env, id, extra);
-    if (id && !action && method === "PATCH") return updateCommission(env, id, body);
-    if (id && !action && method === "DELETE") return deleteCommission(env, id);
+    const response = await handleCommissionOps(env, user, method, id, action, extra, body);
+    if (response) return response;
   }
 
   if (resource === "conventions") {

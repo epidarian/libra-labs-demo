@@ -32,5 +32,8 @@
   ],
   "images": {
     "binding": "IMAGES"
-  }
+  },
+  // Commission emails. Local dev only logs them. The sender domain must be onboarded
+  // with `npx wrangler email sending enable <domain>`, and EMAIL_FROM set on that domain.
+  "send_email": [{ "name": "EMAIL" }]
 }

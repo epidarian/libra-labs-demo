@@ -1,4 +1,5 @@
-import { commissionChecklist, conventions, lorem } from "../shared.js";
+import { commissionQueues, commissionTerms } from "../commissionOffer.js";
+import { conventions, lorem } from "../shared.js";
 
 export const nsfwCatalog = {
   banner: "Adult catalog. 18+ only.",
@@ -52,6 +53,7 @@ export const nsfwCatalog = {
     deck: "Commission an adult picture or comic page, or ask about an order.",
     status: "open",
     updated: "2026-10-26",
-    checklist: commissionChecklist,
+    queues: commissionQueues,
+    terms: commissionTerms,
   },
 };

@@ -1,3 +1,5 @@
+import { describeLine, formatCents } from "../src/commissionPricing.js";
+
 const ENDPOINT = "https://api.linear.app/graphql";
 
 const ISSUE_CREATE = `
@@ -23,19 +25,28 @@ const FILE_UPLOAD = `
 `;
 
 export function linearConfigured(env) {
-  return Boolean(env.LINEAR_API_KEY && env.LINEAR_TEAM_ID);
+  return Boolean(env.LINEAR_API_KEY);
 }
 
-function description(request, references = []) {
+export function linearTeam(env, queue) {
+  return queue?.linear_team_id || env.LINEAR_TEAM_ID || "";
+}
+
+function description(request, queue, references = []) {
   const lines = [
-    `**From:** ${request.name} <${request.email}>`,
+    `**From:** ${request.usernames} <${request.email}>`,
+    `**PayPal invoice to:** ${request.paypal_email || request.email}`,
+    `**Queue:** ${queue.name}`,
     `**Catalog:** ${request.rating.toUpperCase()}`,
-    `**Size:** ${request.size || "-"}`,
-    `**Deadline:** ${request.deadline || "-"}`,
-    `**Where it will be shown:** ${request.venue || "-"}`,
     `**Received:** ${request.created_at}`,
     "",
-    request.message,
+    "**Options**",
+    "",
+    ...JSON.parse(request.selections || "[]").map((line) => `- ${describeLine(line)}`),
+    "",
+    `**Quoted total:** ${formatCents(request.quote_cents)}`,
+    "",
+    request.description,
   ];
   if (references.length) {
     lines.push("", "**References**", "");
@@ -83,18 +94,19 @@ async function uploadToLinear(env, file) {
   return { name: file.name, assetUrl };
 }
 
-export async function createCommissionIssue(env, request, files = []) {
+export async function createCommissionIssue(env, request, queue, files = []) {
   const references = [];
   for (const file of files) {
     references.push(await uploadToLinear(env, file));
   }
 
   const input = {
-    teamId: env.LINEAR_TEAM_ID,
-    title: `Commission: ${request.name}`,
-    description: description(request, references),
+    teamId: linearTeam(env, queue),
+    title: `${queue.name}: ${request.usernames}`,
+    description: description(request, queue, references),
   };
-  if (env.LINEAR_LABEL_ID) input.labelIds = [env.LINEAR_LABEL_ID];
+  const label = queue.linear_label_id || env.LINEAR_LABEL_ID;
+  if (label) input.labelIds = [label];
 
   const res = await fetch(ENDPOINT, {
     method: "POST",

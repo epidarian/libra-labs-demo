@@ -1,4 +1,5 @@
-import { commissionChecklist, conventions, lorem } from "../shared.js";
+import { commissionQueues, commissionTerms } from "../commissionOffer.js";
+import { conventions, lorem } from "../shared.js";
 
 export const sfwCatalog = {
   banner: "",
@@ -52,6 +53,7 @@ export const sfwCatalog = {
     deck: "Commission a picture or a comic page, or ask about an order.",
     status: "open",
     updated: "2026-10-26",
-    checklist: commissionChecklist,
+    queues: commissionQueues,
+    terms: commissionTerms,
   },
 };

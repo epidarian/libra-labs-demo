@@ -1,64 +1,57 @@
+import { commissionQueues, commissionTerms } from "../commissionOffer.js";
+import { normalizeOptions, quote } from "../commissionPricing.js";
 import { nsfwCatalog } from "../nsfw/catalog.js";
 import { sfwCatalog } from "../sfw/catalog.js";
 import { conventions } from "../shared.js";
 
+const QUEUES = commissionQueues.map((queue) => ({
+  ...queue,
+  linear_team_id: "",
+  linear_label_id: "",
+  updated_at: "2026-10-26T00:00:00.000Z",
+  options: queue.options.map((option) => ({ ...option, queue_id: queue.id })),
+}));
+
+const TERMS = commissionTerms;
+
+function request(id, queue_id, usernames, email, description, picks, status, created_at) {
+  const queue = QUEUES.find((item) => item.id === queue_id);
+  const priced = quote(queue.options, picks);
+  return {
+    id,
+    queue_id,
+    rating: "sfw",
+    usernames,
+    email,
+    paypal_email: "",
+    description,
+    selections: priced.lines,
+    quote_cents: priced.totalCents,
+    terms_version: TERMS.updated,
+    status,
+    decision_note: "",
+    decided_at: status === "new" ? null : created_at,
+    emailed_at: null,
+    created_at,
+    linear_url: null,
+    linear_identifier: null,
+  };
+}
+
 const COMMISSIONS = [
-  {
-    id: "demo-0003",
-    name: "Demo client 3",
-    email: "demo3@example.com",
-    rating: "nsfw",
-    size: "18×24",
-    deadline: "2027-01-10",
-    venue: "Personal",
-    message: "Demo request 3. A two-character piece for the adult catalog.",
-    status: "new",
-    created_at: "2026-10-24T21:12:00.000Z",
-    linear_url: null,
-    linear_identifier: null,
-  },
-  {
-    id: "demo-0002",
-    name: "Demo client 2",
-    email: "demo2@example.com",
-    rating: "sfw",
-    size: "Phone wallpaper",
-    deadline: "",
-    venue: "Personal",
-    message: "Demo request 2. A background scene, no characters.",
-    status: "new",
-    created_at: "2026-10-22T09:30:00.000Z",
-    linear_url: null,
-    linear_identifier: null,
-  },
-  {
-    id: "demo-0001",
-    name: "Demo client 1",
-    email: "demo1@example.com",
-    rating: "sfw",
-    size: "11×17",
-    deadline: "2026-12-15",
-    venue: "Print",
-    message: "Demo request 1. A single-character illustration for a framed print.",
-    status: "new",
-    created_at: "2026-10-20T15:04:00.000Z",
-    linear_url: null,
-    linear_identifier: null,
-  },
-  {
-    id: "demo-0004",
-    name: "Demo client 4",
-    email: "demo4@example.com",
-    rating: "sfw",
-    size: "Comic page",
-    deadline: "2026-11-30",
-    venue: "Stream",
-    message: "Demo request 4. One comic page, four panels.",
-    status: "accepted",
-    created_at: "2026-10-18T18:45:00.000Z",
-    linear_url: null,
-    linear_identifier: null,
-  },
+  request("demo-0004", "comics", "Demo client 4", "demo4@example.com",
+    "Demo request 4. One comic page, four panels, in color.",
+    { "comics-pages": 1, "comics-color": 1 }, "accepted", "2026-10-18T18:45:00.000Z"),
+  request("demo-0001", "illustration", "Demo client 1", "demo1@example.com",
+    "Demo request 1. A single-character illustration for a framed print.",
+    { "illustration-lineart": 1, "illustration-shade": 1 }, "new", "2026-10-20T15:04:00.000Z"),
+  request("demo-0002", "illustration", "Demo client 2", "demo2@example.com",
+    "Demo request 2. Two characters with a background scene.",
+    { "illustration-lineart": 1, "illustration-characters": 2, "illustration-background": 1 }, "new",
+    "2026-10-22T09:30:00.000Z"),
+  request("demo-0003", "comics", "Demo client 3", "demo3@example.com",
+    "Demo request 3. Two pages.",
+    { "comics-pages": 2 }, "new", "2026-10-24T21:12:00.000Z"),
 ];
 
 function tagOf(value) {
@@ -97,7 +90,8 @@ function picture(item, rating) {
 
 function seed() {
   return {
-    status: { status: "open", updated: "2026-10-26" },
+    queues: QUEUES.map((queue) => ({ ...queue, options: queue.options.map((o) => ({ ...o })) })),
+    terms: { ...TERMS },
     commissions: COMMISSIONS.map((row) => ({ ...row })),
     conventions: conventions.items.map((item, index) => ({
       id: item.id,
@@ -204,8 +198,95 @@ export function demoContent() {
   const data = db();
   return {
     about: { sfw: data.about.sfw, nsfw: data.about.nsfw },
-    commissions: data.status,
   };
+}
+
+function findQueue(id) {
+  const queue = db().queues.find((item) => item.id === id);
+  if (!queue) fail("Queue not found.");
+  return queue;
+}
+
+function findRequest(id) {
+  const row = db().commissions.find((item) => item.id === id);
+  if (!row) fail("Request not found.");
+  return row;
+}
+
+function demoCommissions(method, id, action, body) {
+  const data = db();
+  const stamp = new Date().toISOString();
+  if (!id && method === "GET") {
+    return {
+      linear: false,
+      email: false,
+      queues: data.queues,
+      terms: data.terms,
+      commissions: data.commissions.map((row) => ({ ...row, files: [] })),
+    };
+  }
+  if (id === "terms" && method === "PUT") {
+    const items = (Array.isArray(body?.items) ? body.items : []).map((item) => String(item).trim()).filter(Boolean);
+    if (!items.length) fail("Add at least one term.");
+    data.terms = { items, updated: stamp };
+    return data.terms;
+  }
+  if (id === "queues" && !action && method === "POST") {
+    const name = String(body?.name ?? "").trim().slice(0, 60);
+    if (!name) fail("Enter a queue name.");
+    const queueId = `${tagOf(name) || "queue"}-${crypto.randomUUID().slice(0, 6)}`;
+    data.queues.push({ id: queueId, name, open: false, linear_team_id: "", linear_label_id: "", updated_at: stamp, options: [] });
+    return { ok: true, id: queueId };
+  }
+  if (id === "queues" && action && method === "PUT") {
+    const queue = findQueue(action);
+    const name = String(body?.name ?? "").trim().slice(0, 60);
+    if (!name) fail("Enter a queue name.");
+    const parsed = normalizeOptions(body?.options);
+    if (parsed.error) fail(parsed.error);
+    Object.assign(queue, {
+      name,
+      linear_team_id: String(body?.linear_team_id ?? ""),
+      linear_label_id: String(body?.linear_label_id ?? ""),
+      updated_at: stamp,
+      options: parsed.options.map((o) => ({ ...o, queue_id: queue.id })),
+    });
+    return { ok: true };
+  }
+  if (id === "queues" && action && method === "PATCH") {
+    const queue = findQueue(action);
+    queue.open = !!body?.open;
+    queue.updated_at = stamp;
+    return { ok: true };
+  }
+  if (id === "queues" && action && method === "DELETE") {
+    const used = data.commissions.filter((row) => row.queue_id === action).length;
+    if (used) fail(`${used} request(s) use this queue. Close it instead, or delete them first.`);
+    data.queues = data.queues.filter((queue) => queue.id !== action);
+    return { ok: true };
+  }
+  if (id && action === "decision" && method === "POST") {
+    const row = findRequest(id);
+    if (row.status !== "new") fail("This request was already decided.");
+    if (!["accept", "decline"].includes(body?.decision)) fail("Unknown decision.");
+    row.status = body.decision === "accept" ? "accepted" : "declined";
+    row.decision_note = String(body?.note ?? "").trim().slice(0, 2000);
+    row.decided_at = stamp;
+    return { ok: true, warnings: ["This demo does not send email."] };
+  }
+  if (id && action === "email") fail("Email is not configured.");
+  if (id && action === "linear") fail("Linear is not configured. Set LINEAR_API_KEY.");
+  if (id && !action && method === "PATCH") {
+    const row = findRequest(id);
+    if (body?.status !== "done" || row.status !== "accepted") fail("Only accepted requests can be marked done.");
+    row.status = "done";
+    return { ok: true };
+  }
+  if (id && !action && method === "DELETE") {
+    data.commissions = data.commissions.filter((item) => item.id !== id);
+    return { ok: true };
+  }
+  fail("Not found.");
 }
 
 export function demoUpload() {
@@ -216,32 +297,7 @@ export function demoOps(path, { method = "GET", body } = {}) {
   const data = db();
   const [resource, id, action, extra] = path.split("/");
 
-  if (resource === "commissions" && !id && method === "GET") {
-    return {
-      linear: false,
-      status: data.status,
-      commissions: data.commissions.map((row) => ({ ...row, files: [] })),
-    };
-  }
-  if (resource === "commissions" && id === "status" && method === "PUT") {
-    if (!["open", "closed"].includes(body?.status)) fail("Unknown status.");
-    data.status = { status: body.status, updated: new Date().toISOString().slice(0, 10) };
-    return data.status;
-  }
-  if (resource === "commissions" && id && action === "linear") {
-    fail("Linear is not configured. Set LINEAR_API_KEY and LINEAR_TEAM_ID.");
-  }
-  if (resource === "commissions" && id && !action && method === "PATCH") {
-    const row = data.commissions.find((item) => item.id === id);
-    if (!row) fail("Request not found.");
-    if (!["new", "accepted", "declined", "done"].includes(body?.status)) fail("Unknown status.");
-    row.status = body.status;
-    return { ok: true };
-  }
-  if (resource === "commissions" && id && !action && method === "DELETE") {
-    data.commissions = data.commissions.filter((item) => item.id !== id);
-    return { ok: true };
-  }
+  if (resource === "commissions") return demoCommissions(method, id, action, body);
 
   if (resource === "users" && !id && method === "GET") {
     return { me: "demo-admin", users: data.users };

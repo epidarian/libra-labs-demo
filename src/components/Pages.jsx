@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { priceLabel } from "../commissionPricing.js";
 import { usePatreon } from "../context/Patreon.jsx";
 import { useSiteContent } from "../context/SiteContent.jsx";
 import { meetsTier, tierName } from "../tiers.js";
@@ -388,28 +389,36 @@ export function About({ page, commissions }) {
 }
 
 export function Commissions({ page, email, zone }) {
-  const open = page.status === "open";
   return (
     <section className="page">
       <WindowHead kicker={page.kicker} title={page.title} deck={page.deck} />
       <div className="contact">
-        <ContactForm email={email} open={open} zone={zone} />
-        <aside className="contact__side">
+        <div className="contact__stack">
           <CommissionStatus status={page.status} updated={page.updated} link={false} />
+          <ContactForm email={email} commissions={page} zone={zone} />
+        </div>
+        <aside className="contact__side">
           <div className="panel">
             <h2 className="panel__title">Email</h2>
             <a className="mail" href={`mailto:${email}`}>
               {email}
             </a>
-            <h2 className="panel__title">For a commission, include</h2>
-            <ol className="checklist">
-              {page.checklist.map((item, i) => (
-                <li key={item}>
-                  <span>{pad(i + 1)}</span>
-                  {item}
-                </li>
-              ))}
-            </ol>
+            {(page.queues ?? []).map((queue) => (
+              <Fragment key={queue.id}>
+                <h2 className="panel__title">
+                  {queue.name}
+                  {queue.open ? "" : " (closed)"}
+                </h2>
+                <ol className="checklist">
+                  {queue.options.map((option, i) => (
+                    <li key={option.id}>
+                      <span>{pad(i + 1)}</span>
+                      {option.label}: {priceLabel(option)}
+                    </li>
+                  ))}
+                </ol>
+              </Fragment>
+            ))}
           </div>
         </aside>
       </div>
