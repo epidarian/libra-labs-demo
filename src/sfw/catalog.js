@@ -22,7 +22,7 @@ export const sfwCatalog = {
     deck: "Print comics",
     items: [
       { id: "c1", index: "01", title: "Issue 01", detail: "24 pages. Print.", blurb: lorem[0], motif: "orbit", href: null },
-      { id: "c2", index: "02", title: "Issue 02", detail: "24 pages. Print.", blurb: lorem[1], motif: "meridian", href: null },
+      { id: "c2", index: "02", title: "Issue 02", detail: "24 pages. Print.", blurb: lorem[1], motif: "meridian", href: null, minCents: 300 },
       { id: "c3", index: "03", title: "Short 01", detail: "8 pages.", blurb: lorem[2], motif: "field", href: null },
     ],
   },
@@ -32,7 +32,7 @@ export const sfwCatalog = {
     deck: "Prints, comics, and original pictures.",
     items: [
       { id: "s1", name: "Print, 11×17", note: "Open edition", price: "$40" },
-      { id: "s2", name: "Print, 18×24", note: "Open edition", price: "$75" },
+      { id: "s2", name: "Print, 18×24", note: "Open edition", price: "$75", minCents: 1000 },
       { id: "s3", name: "Comic, print", note: "Issue 01 or Issue 02", price: "$15" },
       { id: "s4", name: "Original", note: "One of a kind", price: "On request" },
     ],

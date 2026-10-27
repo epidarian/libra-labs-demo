@@ -1,11 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
   authorizeUrl,
+  CREATOR_STATE_KEY,
   demoProfile,
   exchangeCode,
   patreonLive,
 } from "../patreon.js";
-import { demoEmailProfile, emailLive } from "../emailAuth.js";
+import { emailLive } from "../emailAuth.js";
 
 const PatreonContext = createContext(null);
 const PROFILE_KEY = "libra-patreon";
@@ -34,9 +35,33 @@ export function PatreonProvider({ children }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    let cancel = false;
+    fetch("/api/auth/session")
+      .then(async (res) => {
+        if (cancel) return;
+        if (res.ok) {
+          const next = await res.json();
+          setProfile(next);
+          saveProfile(next);
+          return;
+        }
+        const stored = readProfile();
+        if (stored?.provider === "email") {
+          setProfile(null);
+          saveProfile(null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
     if (!code) return;
+    if (sessionStorage.getItem(CREATOR_STATE_KEY) === params.get("state")) return;
     const expected = sessionStorage.getItem(STATE_KEY);
     sessionStorage.removeItem(STATE_KEY);
     window.history.replaceState(null, "", window.location.pathname);
@@ -80,7 +105,7 @@ export function PatreonProvider({ children }) {
           setStatus("idle");
         }, 1200);
       },
-      signInWithEmail: ({ email, password }) => {
+      signInWithEmail: async ({ email, password, create }) => {
         setError(null);
         if (!/^\S+@\S+\.\S+$/.test(email)) {
           setError("Enter a valid email address.");
@@ -90,17 +115,26 @@ export function PatreonProvider({ children }) {
           setError("Password must be at least 8 characters.");
           return;
         }
-        if (!emailLive) {
-          setStatus("connecting");
-          window.setTimeout(() => {
-            const next = demoEmailProfile(email);
-            setProfile(next);
-            saveProfile(next);
-            setStatus("idle");
-          }, 900);
+        setStatus("connecting");
+        try {
+          const res = await fetch(create ? "/api/auth/register" : "/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(body.error || "Sign-in failed.");
+          setProfile(body);
+          saveProfile(body);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setStatus("idle");
         }
       },
       disconnect: () => {
+        fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        fetch("/api/patreon", { method: "DELETE" }).catch(() => {});
         setProfile(null);
         saveProfile(null);
       },

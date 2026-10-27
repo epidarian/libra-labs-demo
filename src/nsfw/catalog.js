@@ -21,7 +21,7 @@ export const nsfwCatalog = {
     title: "Comics",
     deck: "Adult comics.",
     items: [
-      { id: "nc1", index: "01", title: "Issue 01", detail: "32 pages.", blurb: lorem[0], motif: "heat", href: null },
+      { id: "nc1", index: "01", title: "Issue 01", detail: "32 pages.", blurb: lorem[0], motif: "heat", href: null, minCents: 500 },
       { id: "nc2", index: "02", title: "Short 01", detail: "12 pages.", blurb: lorem[1], motif: "orbit", href: null },
       { id: "nc3", index: "03", title: "Short 02", detail: "8 pages.", blurb: lorem[2], motif: "suns", href: null },
     ],
@@ -34,7 +34,7 @@ export const nsfwCatalog = {
       { id: "ns1", name: "Print, 11×17", note: "Open edition", price: "$45" },
       { id: "ns2", name: "Print, 18×24", note: "Open edition", price: "$80" },
       { id: "ns3", name: "Comic, print", note: "Issue 01", price: "$18" },
-      { id: "ns4", name: "Original", note: "One of a kind", price: "On request" },
+      { id: "ns4", name: "Original", note: "One of a kind", price: "On request", minCents: 1000 },
     ],
   },
   conventions,

@@ -1,30 +1,72 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 const COMMISSION = "Commission";
 
-export function ContactForm({ email, open }) {
+export function ContactForm({ email, open, zone }) {
   const id = useId();
   const [reason, setReason] = useState(open ? COMMISSION : "Order question");
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!open && reason === COMMISSION) setReason("Order question");
+  }, [open, reason]);
+
+  async function sendCommission(form, data) {
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/commissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: data.get("name"),
+          email: data.get("email"),
+          size: data.get("size"),
+          deadline: data.get("deadline"),
+          venue: data.get("venue"),
+          message: data.get("message"),
+          rating: zone,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "The request could not be sent.");
+      form.reset();
+      setSent("request");
+    } catch (err) {
+      setError(`${err.message} You can also write to ${email}.`);
+    } finally {
+      setSending(false);
+    }
+  }
 
   function onSubmit(event) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const lines = [`Name: ${data.get("name")}`, `Email: ${data.get("email")}`];
+    const form = event.currentTarget;
+    const data = new FormData(form);
     if (reason === COMMISSION) {
-      lines.push(
-        `Size: ${data.get("size") || "-"}`,
-        `Deadline: ${data.get("deadline") || "-"}`,
-        `Where it will be shown: ${data.get("venue") || "-"}`
-      );
+      sendCommission(form, data);
+      return;
     }
+    const lines = [`Name: ${data.get("name")}`, `Email: ${data.get("email")}`];
     lines.push("", String(data.get("message") || ""));
     const subject = `${reason}: ${data.get("name")}`;
     window.location.href = `mailto:${email}?subject=${encodeURIComponent(
       subject
     )}&body=${encodeURIComponent(lines.join("\n"))}`;
-    setSent(true);
+    setSent("mail");
   }
+
+  const note =
+    error ||
+    (sent === "request"
+      ? "Request received. A reply will come to the email address you entered."
+      : sent === "mail"
+        ? `Your email app should now be open with this message. If it is not, write to ${email}.`
+        : reason === COMMISSION
+          ? "Sends the request to the studio."
+          : "Opens your email app with this message filled in.");
 
   return (
     <form className="panel contact__form" onSubmit={onSubmit}>
@@ -45,7 +87,11 @@ export function ContactForm({ email, open }) {
           id={`${id}-reason`}
           name="reason"
           value={reason}
-          onChange={(event) => setReason(event.target.value)}
+          onChange={(event) => {
+            setReason(event.target.value);
+            setSent(null);
+            setError(null);
+          }}
         >
           <option value={COMMISSION} disabled={!open}>
             {open ? "Commission" : "Commission (closed)"}
@@ -79,13 +125,11 @@ export function ContactForm({ email, open }) {
       </div>
 
       <div className="contact__actions">
-        <button type="submit" className="btn">
-          Send
+        <button type="submit" className="btn" disabled={sending}>
+          {sending ? "Sending…" : "Send"}
         </button>
-        <p className="contact__note" aria-live="polite">
-          {sent
-            ? `Your email app should now be open with this message. If it is not, write to ${email}.`
-            : "Opens your email app with this message filled in."}
+        <p className="contact__note" role={error ? "alert" : undefined} aria-live="polite">
+          {note}
         </p>
       </div>
     </form>

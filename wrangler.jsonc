@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "libra-labs-site",
+  "main": "./worker/index.js",
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 },
+    "traces": { "enabled": true, "head_sampling_rate": 0.01 }
+  },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/media/*"]
+  },
+  // Replaced with the id from `wrangler d1 create libra-labs-auth`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "libra-labs-auth",
+      "database_id": "13f07671-6c7d-4999-b17f-9330e8cd02ab",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "GALLERY",
+      "bucket_name": "libra-labs-gallery"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  }
+}

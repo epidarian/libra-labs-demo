@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSiteMode } from "../context/SiteMode.jsx";
 import { usePatreon } from "../context/Patreon.jsx";
+import { OPS_PATH, onOps } from "../ops/route.js";
 import { patreonConfig } from "../patreon.js";
 import { ModeSwitch } from "./ModeSwitch.jsx";
 import { PatreonMark } from "./PatreonMark.jsx";
@@ -224,6 +225,9 @@ export function TopTools() {
         >
           <ModeSwitch kind="rating" on={nsfw} onToggle={toggleRating} offLabel="SFW" onLabel="NSFW" />
           <ModeSwitch kind="theme" on={lite} onToggle={toggleTheme} offLabel="Dark" onLabel="Lite" />
+          <a className="drawer__link" href={onOps ? "/" : OPS_PATH}>
+            {onOps ? "Back to site" : "Operations"}
+          </a>
         </div>
       )}
 
