@@ -11,12 +11,24 @@ function readStored(key, allowed, fallback) {
   }
 }
 
+function store(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
+  }
+}
+
 export function SiteModeProvider({ children }) {
+  const [adult, setAdult] = useState(
+    () => readStored("libra-age", ["adult"], null) === "adult"
+  );
+  const [gateOpen, setGateOpen] = useState(() => !adult);
   const [theme, setTheme] = useState(() =>
     readStored("libra-theme", ["dark", "lite"], "dark")
   );
   const [rating, setRating] = useState(() =>
-    readStored("libra-rating", ["sfw", "nsfw"], "sfw")
+    adult ? readStored("libra-rating", ["sfw", "nsfw"], "nsfw") : "sfw"
   );
   const [section, setSectionState] = useState("gallery");
   const setSection = (id) => {
@@ -27,13 +39,9 @@ export function SiteModeProvider({ children }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.rating = rating;
-    try {
-      localStorage.setItem("libra-theme", theme);
-      localStorage.setItem("libra-rating", rating);
-    } catch {
-      /* private mode */
-    }
-  }, [theme, rating]);
+    store("libra-theme", theme);
+    if (adult) store("libra-rating", rating);
+  }, [theme, rating, adult]);
 
   const value = useMemo(
     () => ({
@@ -41,12 +49,28 @@ export function SiteModeProvider({ children }) {
       rating,
       lite: theme === "lite",
       nsfw: rating === "nsfw",
+      adult,
+      gateOpen,
       section,
       setSection,
       toggleTheme: () => setTheme((t) => (t === "dark" ? "lite" : "dark")),
-      toggleRating: () => setRating((r) => (r === "sfw" ? "nsfw" : "sfw")),
+      toggleRating: () => {
+        if (rating === "nsfw") setRating("sfw");
+        else if (adult) setRating("nsfw");
+        else setGateOpen(true);
+      },
+      confirmAdult: () => {
+        store("libra-age", "adult");
+        setAdult(true);
+        setRating("nsfw");
+        setGateOpen(false);
+      },
+      declineAdult: () => {
+        setRating("sfw");
+        setGateOpen(false);
+      },
     }),
-    [theme, rating, section]
+    [theme, rating, adult, gateOpen, section]
   );
 
   return (

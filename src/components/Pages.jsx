@@ -1,9 +1,11 @@
 import { Art } from "./Art.jsx";
 import { CommissionStatus } from "./CommissionStatus.jsx";
 import { ContactForm } from "./ContactForm.jsx";
+import { PatreonMark } from "./PatreonMark.jsx";
 import { Sensor } from "./Sensor.jsx";
 
 const pad = (n) => String(n).padStart(2, "0");
+const EARLY_ACCESS_DAYS = 4;
 
 function WindowHead({ kicker, title, deck, count }) {
   return (
@@ -38,7 +40,18 @@ export function Gallery({ page }) {
               <span className="card__rule" />
               <span className="card__year">{work.year}</span>
             </header>
-            <Art motif={work.motif} />
+            <div className="card__art">
+              <Art motif={work.motif} />
+              {i === 0 && (
+                <div className="lock">
+                  <span className="lock__icon" aria-hidden="true">🔒</span>
+                  <p className="lock__note">
+                    <PatreonMark />
+                    Releases in {EARLY_ACCESS_DAYS} Days
+                  </p>
+                </div>
+              )}
+            </div>
             <footer className="card__meta">
               <h3>{work.title}</h3>
               <p>{work.medium}</p>
