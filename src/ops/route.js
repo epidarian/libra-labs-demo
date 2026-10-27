@@ -1,3 +1,22 @@
 export const OPS_PATH = "/ops";
 
-export const onOps = window.location.pathname.replace(/\/+$/, "") === OPS_PATH;
+export function appPathname() {
+  let path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const base = import.meta.env.BASE_URL;
+  if (base.startsWith("/")) {
+    const prefix = base.replace(/\/+$/, "");
+    if (prefix && (path === prefix || path.startsWith(`${prefix}/`))) {
+      path = path.slice(prefix.length) || "/";
+    }
+  }
+  return path;
+}
+
+export const onOps = appPathname() === OPS_PATH;
+
+export function siteHref(path) {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  const base = import.meta.env.BASE_URL;
+  if (!base.startsWith("/")) return normalized;
+  return `${base}${normalized.slice(1)}`;
+}

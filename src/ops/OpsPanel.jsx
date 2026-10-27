@@ -9,6 +9,7 @@ import { CommissionsTab } from "./CommissionsTab.jsx";
 import { ConventionsTab } from "./ConventionsTab.jsx";
 import { GalleryTab } from "./GalleryTab.jsx";
 import { NotFound } from "./NotFound.jsx";
+import { siteHref } from "./route.js";
 import { UsersTab } from "./UsersTab.jsx";
 
 const TABS = [
@@ -52,7 +53,7 @@ export function OpsPanel() {
       <Viewport />
       <div className="console">
         <header className="topbar">
-          <a className="brand" href="/">
+          <a className="brand" href={siteHref("/")}>
             <Logo className="brand__mark" />
             <span className="brand__name">Libra Labs</span>
           </a>
