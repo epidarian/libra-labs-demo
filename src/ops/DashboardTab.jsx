@@ -111,7 +111,6 @@ export function DashboardTab() {
             ) : null}
           </Service>
           <Service name="Linear" service={data.linear} />
-          <Service name="Email" service={data.email} />
           <Service name="Google" service={data.google} />
         </div>
       ) : null}

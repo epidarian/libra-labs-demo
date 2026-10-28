@@ -20,8 +20,7 @@ function Request({ item, queue, data, run, warnings = [], setWarnings }) {
 
   const decide = (decision) => {
     const verb = decision === "accept" ? "Accept" : "Decline";
-    const mail = data.email ? ` and email ${item.email}` : "";
-    if (!window.confirm(`${verb} the request from ${item.usernames}${mail}?`)) return;
+    if (!window.confirm(`${verb} the request from ${item.usernames}?`)) return;
     act(() => ops(`commissions/${item.id}/decision`, { method: "POST", body: { decision, note } }));
   };
 
@@ -58,7 +57,6 @@ function Request({ item, queue, data, run, warnings = [], setWarnings }) {
             <dt>Decided</dt>
             <dd>
               {label(item.status === "done" ? "accepted" : item.status)} {shortDate(item.decided_at)}
-              {item.emailed_at ? ", emailed" : ", not emailed"}
             </dd>
             {item.decision_note ? (
               <>
@@ -84,7 +82,7 @@ function Request({ item, queue, data, run, warnings = [], setWarnings }) {
       ) : null}
       {pending ? (
         <div className="field">
-          <label htmlFor={`note-${item.id}`}>Note to client (optional, included in the email)</label>
+          <label htmlFor={`note-${item.id}`}>Note (optional)</label>
           <textarea
             id={`note-${item.id}`}
             className="ops__note"
@@ -117,16 +115,6 @@ function Request({ item, queue, data, run, warnings = [], setWarnings }) {
             onClick={() => run(() => ops(`commissions/${item.id}`, { method: "PATCH", body: { status: "done" } }))}
           >
             Mark done
-          </button>
-        ) : null}
-        {!pending && !item.emailed_at && data.email ? (
-          <button
-            type="button"
-            className="ops__btn"
-            disabled={busy}
-            onClick={() => act(() => ops(`commissions/${item.id}/email`, { method: "POST" }))}
-          >
-            Send decision email
           </button>
         ) : null}
         {item.linear_url ? (
@@ -500,11 +488,6 @@ export function CommissionsTab() {
             {(data?.queues ?? []).map((queue) => `${queue.name}: ${queue.open ? "open" : "closed"}`).join(" · ")}
           </p>
         </div>
-        {data && !data.email ? (
-          <p className="ops__muted">
-            Email is not configured, so clients will not be emailed. Set EMAIL_FROM and the EMAIL binding.
-          </p>
-        ) : null}
         {data && !data.linear ? (
           <p className="ops__muted">Linear is not configured. Set LINEAR_API_KEY to file accepted requests.</p>
         ) : null}

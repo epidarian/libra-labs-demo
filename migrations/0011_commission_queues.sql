@@ -88,7 +88,6 @@ CREATE TABLE commissions_next (
   status TEXT NOT NULL DEFAULT 'new',
   decision_note TEXT NOT NULL DEFAULT '',
   decided_at TEXT,
-  emailed_at TEXT,
   linear_id TEXT,
   linear_identifier TEXT,
   linear_url TEXT,

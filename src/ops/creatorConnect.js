@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { loadDemoMode } from "../demoMode.js";
-import { CREATOR_STATE_KEY, creatorAuthorizeUrl, patreonIsLive } from "../patreon.js";
+import { CREATOR_STATE_KEY, creatorAuthorizeUrl, patreonIsLive, redirectUri } from "../patreon.js";
 import { ops } from "./api.js";
 
 const RETURN_KEY = "libra-creator-return";
@@ -38,7 +38,7 @@ function exchangeCreatorCode() {
   window.history.replaceState(null, "", window.location.pathname);
   connectResult = ops("gallery/patreon/connect", {
     method: "POST",
-    body: { code, redirect_uri: `${window.location.origin}/ops` },
+    body: { code, redirect_uri: redirectUri() },
   });
   return connectResult;
 }

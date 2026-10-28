@@ -1,6 +1,5 @@
 import { json } from "./auth.js";
 import { RATINGS, readSettings, text, writeSetting } from "./content.js";
-import { emailConfigured, sendAccepted, sendDeclined, sendReceipt } from "./email.js";
 import { createCommissionIssue, linearConfigured, linearTeam } from "./linear.js";
 import { normalizeOptions, quote } from "../src/commissionPricing.js";
 
@@ -202,14 +201,6 @@ export async function receiveCommission(request, env) {
     return json({ error: "The request could not be saved." }, 500);
   }
 
-  if (emailConfigured(env)) {
-    try {
-      await sendReceipt(env, row, queue.name);
-    } catch (error) {
-      console.error(JSON.stringify({ message: "receipt email failed", id, error: errorText(error) }));
-    }
-  }
-
   console.log(JSON.stringify({ message: "commission received", id, queue: queue.id, images: stored.length }));
   return json({ ok: true, id, quoteCents: priced.totalCents }, 201);
 }
@@ -227,7 +218,6 @@ async function listCommissions(env) {
   }
   return json({
     linear: linearConfigured(env),
-    email: emailConfigured(env),
     queues: await loadQueues(env),
     terms: readTerms(await readSettings(env)),
     commissions: results.map((row) => ({
@@ -284,14 +274,8 @@ async function fileToLinear(env, request, queue) {
 
 const readRequest = (env, id) => env.DB.prepare("SELECT * FROM commissions WHERE id = ?").bind(id).first();
 
-async function emailDecision(env, request, queue) {
-  const send = request.status === "accepted" ? sendAccepted : sendDeclined;
-  await send(env, request, queue.name);
-  await env.DB.prepare("UPDATE commissions SET emailed_at = ? WHERE id = ?").bind(now(), request.id).run();
-}
-
-// Accept or decline a queued request. The decision is saved first; email and Linear
-// failures come back as warnings so they can be retried from the console.
+// Accept or decline a queued request. The decision is saved first; a Linear
+// failure comes back as a warning so it can be retried from the console.
 async function decide(env, actor, id, body) {
   if (!["accept", "decline"].includes(body?.decision)) return json({ error: "Unknown decision." }, 400);
   const request = await readRequest(env, id);
@@ -312,15 +296,6 @@ async function decide(env, actor, id, body) {
     .run();
 
   const warnings = [];
-  if (!emailConfigured(env)) {
-    warnings.push("Email is not configured, so the client was not emailed.");
-  } else {
-    try {
-      await emailDecision(env, decided, queue);
-    } catch (error) {
-      warnings.push(`The email was not sent: ${errorText(error)}`);
-    }
-  }
   if (decided.status === "accepted" && linearConfigured(env) && linearTeam(env, queue)) {
     try {
       await fileToLinear(env, decided, queue);
@@ -330,21 +305,6 @@ async function decide(env, actor, id, body) {
   }
   console.log(JSON.stringify({ message: "commission decided", id, status: decided.status, by: actor.id }));
   return json({ ok: true, warnings });
-}
-
-async function resendEmail(env, id) {
-  if (!emailConfigured(env)) return json({ error: "Email is not configured." }, 503);
-  const request = await readRequest(env, id);
-  if (!request) return json({ error: "Request not found." }, 404);
-  if (!["accepted", "declined"].includes(request.status)) {
-    return json({ error: "Only decided requests have an email to send." }, 409);
-  }
-  try {
-    await emailDecision(env, request, await loadQueue(env, request.queue_id));
-  } catch (error) {
-    return json({ error: `The email was not sent: ${errorText(error)}` }, 502);
-  }
-  return json({ ok: true });
 }
 
 async function sendToLinear(env, actor, id) {
@@ -498,7 +458,6 @@ export function handleCommissionOps(env, actor, method, id, action, extra, body)
   }
 
   if (id && action === "decision" && method === "POST") return decide(env, actor, id, body);
-  if (id && action === "email" && method === "POST") return resendEmail(env, id);
   if (id && action === "linear" && method === "POST") return sendToLinear(env, actor, id);
   if (id && action === "files" && extra && method === "GET") return serveCommissionFile(env, id, extra);
   if (id && !action && method === "PATCH") return markDone(env, id, body);

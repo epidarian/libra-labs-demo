@@ -192,7 +192,7 @@ export function CommissionForm({ email, commissions, zone, reasonField }) {
   const note =
     error ||
     (sent
-      ? "Request received. A confirmation, and later the decision, will come to the email address you entered."
+      ? "Request received."
       : "All communication about your commission happens by email.");
 
   const illustration = queues.find((item) => item.id === "illustration");

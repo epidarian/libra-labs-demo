@@ -31,7 +31,6 @@ function request(id, queue_id, usernames, email, description, picks, status, cre
     status,
     decision_note: "",
     decided_at: status === "new" ? null : created_at,
-    emailed_at: null,
     created_at,
     linear_url: null,
     linear_identifier: null,
@@ -219,7 +218,6 @@ function demoCommissions(method, id, action, body) {
   if (!id && method === "GET") {
     return {
       linear: false,
-      email: false,
       queues: data.queues,
       terms: data.terms,
       commissions: data.commissions.map((row) => ({ ...row, files: [] })),
@@ -272,9 +270,8 @@ function demoCommissions(method, id, action, body) {
     row.status = body.decision === "accept" ? "accepted" : "declined";
     row.decision_note = String(body?.note ?? "").trim().slice(0, 2000);
     row.decided_at = stamp;
-    return { ok: true, warnings: ["This demo does not send email."] };
+    return { ok: true };
   }
-  if (id && action === "email") fail("Email is not configured.");
   if (id && action === "linear") fail("Linear is not configured. Set LINEAR_API_KEY.");
   if (id && !action && method === "PATCH") {
     const row = findRequest(id);
@@ -302,7 +299,6 @@ export function demoOps(path, { method = "GET", body } = {}) {
       checkedAt: "2026-10-27T00:00:00.000Z",
       patreon: { configured: false, connected: false, ok: false, detail: "Client id and secret are unset." },
       linear: { configured: false, ok: false, detail: "API key is unset." },
-      email: { configured: false, ok: false, detail: "EMAIL binding is unset." },
       google: { configured: false, ok: false, detail: "Client id and secret are unset." },
     };
   }

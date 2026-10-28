@@ -14,6 +14,11 @@
   "vars": {
     "DEMO": "0"
   },
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "libralabscomics.net", "custom_domain": true },
+    { "pattern": "www.libralabscomics.net", "custom_domain": true }
+  ],
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/media/*", "/tos.txt", "/privacy-policy.txt"]
@@ -35,8 +40,5 @@
   ],
   "images": {
     "binding": "IMAGES"
-  },
-  // Commission emails. Local dev only logs them. The sender domain must be onboarded
-  // with `npx wrangler email sending enable <domain>`, and EMAIL_FROM set on that domain.
-  "send_email": [{ "name": "EMAIL" }]
+  }
 }

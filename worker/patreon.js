@@ -151,7 +151,8 @@ export async function handlePatreon(request, env) {
   } catch {
     return json({ error: "Bad request" }, 400);
   }
-  if (!code || redirect.origin !== new URL(request.url).origin) {
+  const here = new URL(request.url);
+  if (!code || redirect.origin !== here.origin || redirect.pathname !== "/ops") {
     return json({ error: "Bad request" }, 400);
   }
 

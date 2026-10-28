@@ -22,6 +22,23 @@ import { loadDemoMode } from "../demoMode.js";
 const PatreonContext = createContext(null);
 const PROFILE_KEY = "libra-patreon";
 const STATE_KEY = "libra-patreon-state";
+const RETURN_KEY = "libra-patreon-return";
+const ERROR_KEY = "libra-patreon-error";
+
+function safeReturn(value) {
+  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/";
+  return value;
+}
+
+function takePatreonError() {
+  try {
+    const message = sessionStorage.getItem(ERROR_KEY) || "";
+    if (message) sessionStorage.removeItem(ERROR_KEY);
+    return message;
+  } catch {
+    return "";
+  }
+}
 
 function readProfile() {
   try {
@@ -57,7 +74,8 @@ export function PatreonProvider({ children }) {
       });
     });
     const googleError = takeGoogleError();
-    if (googleError) setError(googleError);
+    const patreonError = takePatreonError();
+    if (googleError || patreonError) setError(googleError || patreonError);
     fetch("/api/auth/session")
       .then(async (res) => {
         if (cancel) return;
@@ -93,10 +111,27 @@ export function PatreonProvider({ children }) {
       }
       if (sessionStorage.getItem(CREATOR_STATE_KEY) === params.get("state")) return;
       const expected = sessionStorage.getItem(STATE_KEY);
+      const back = safeReturn(sessionStorage.getItem(RETURN_KEY));
       sessionStorage.removeItem(STATE_KEY);
+      sessionStorage.removeItem(RETURN_KEY);
       window.history.replaceState(null, "", window.location.pathname);
+      const resume = (message) => {
+        const here = `${window.location.pathname}${window.location.search}`;
+        if (back === here) {
+          if (message) setError(message);
+          return;
+        }
+        if (message) {
+          try {
+            sessionStorage.setItem(ERROR_KEY, message);
+          } catch {
+            /* private mode */
+          }
+        }
+        window.location.assign(back);
+      };
       if (!expected || params.get("state") !== expected) {
-        setError("Patreon sign-in could not be verified. Try again.");
+        resume("Patreon sign-in could not be verified. Try again.");
         return;
       }
       setStatus("connecting");
@@ -105,10 +140,11 @@ export function PatreonProvider({ children }) {
           setProfile(next);
           saveProfile(next);
           setStatus("idle");
+          resume();
         })
         .catch((err) => {
-          setError(err.message);
           setStatus("idle");
+          resume(err.message);
         });
     });
     return () => {
@@ -170,6 +206,7 @@ export function PatreonProvider({ children }) {
           if (!demo && patreonIsLive()) {
             const state = crypto.randomUUID();
             sessionStorage.setItem(STATE_KEY, state);
+            sessionStorage.setItem(RETURN_KEY, `${window.location.pathname}${window.location.search}`);
             window.location.assign(authorizeUrl(state));
             return;
           }

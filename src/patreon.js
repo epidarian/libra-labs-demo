@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { OPS_PATH } from "./ops/route.js";
 
 export const patreonConfig = {
   clientId: import.meta.env.VITE_PATREON_CLIENT_ID || "",
@@ -44,7 +45,7 @@ export function usePatreonLive() {
 }
 
 export function redirectUri() {
-  return `${window.location.origin}${window.location.pathname}`;
+  return `${window.location.origin}${OPS_PATH}`;
 }
 
 export const CREATOR_STATE_KEY = "libra-creator-state";
@@ -53,7 +54,7 @@ export function creatorAuthorizeUrl(state) {
   const params = new URLSearchParams({
     response_type: "code",
     client_id: patreonConfig.clientId,
-    redirect_uri: `${window.location.origin}/ops`,
+    redirect_uri: redirectUri(),
     scope: "identity campaigns",
     state,
   });
