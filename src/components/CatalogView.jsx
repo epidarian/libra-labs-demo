@@ -57,7 +57,6 @@ export function CatalogView({ catalog: base, zone }) {
 
   return (
     <main className={`view view--${zone}`} id="top" key={section}>
-      {catalog.banner ? <p className="mature">{catalog.banner}</p> : null}
       {pages[section] ?? pages.gallery}
     </main>
   );

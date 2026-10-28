@@ -30,6 +30,7 @@ export function SiteModeProvider({ children }) {
   const [rating, setRating] = useState(() =>
     adult ? readStored("libra-rating", ["sfw", "nsfw"], "nsfw") : "sfw"
   );
+  const [ambient, setAmbient] = useState(false);
   const [section, setSectionState] = useState("gallery");
   const setSection = (id) => {
     setSectionState(id);
@@ -39,9 +40,10 @@ export function SiteModeProvider({ children }) {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.rating = rating;
+    document.documentElement.dataset.ambient = ambient ? "true" : "false";
     store("libra-theme", theme);
     if (adult) store("libra-rating", rating);
-  }, [theme, rating, adult]);
+  }, [theme, rating, adult, ambient]);
 
   const value = useMemo(
     () => ({
@@ -52,8 +54,10 @@ export function SiteModeProvider({ children }) {
       adult,
       gateOpen,
       section,
+      ambient,
       setSection,
       toggleTheme: () => setTheme((t) => (t === "dark" ? "lite" : "dark")),
+      toggleAmbient: () => setAmbient((on) => !on),
       toggleRating: () => {
         if (rating === "nsfw") setRating("sfw");
         else if (adult) setRating("nsfw");
@@ -70,7 +74,7 @@ export function SiteModeProvider({ children }) {
         setGateOpen(false);
       },
     }),
-    [theme, rating, adult, gateOpen, section]
+    [theme, rating, adult, gateOpen, section, ambient]
   );
 
   return (

@@ -1,9 +1,26 @@
+import { useEffect, useState } from "react";
 import { useSiteContent } from "../context/SiteContent.jsx";
 import { useSiteMode } from "../context/SiteMode.jsx";
+import { nsfwCatalog } from "../nsfw/catalog.js";
+import { sfwCatalog } from "../sfw/catalog.js";
 import { sections } from "../sections.js";
 import { CommissionStatus } from "./CommissionStatus.jsx";
 import { Logo } from "./Logo.jsx";
 import { TopTools } from "./TopTools.jsx";
+
+function useClearance() {
+  const [top, setTop] = useState(96);
+  useEffect(() => {
+    const bar = document.querySelector(".topbar");
+    if (!bar) return undefined;
+    const measure = () => setTop(Math.ceil(bar.getBoundingClientRect().height) + 12);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
+  return top;
+}
 
 const pad = (n) => String(n).padStart(2, "0");
 
@@ -11,6 +28,8 @@ export function Frame({ children }) {
   const { theme, rating, section, setSection } = useSiteMode();
   const content = useSiteContent();
   const commissions = content?.commissions;
+  const banner = (rating === "nsfw" ? nsfwCatalog : sfwCatalog).banner;
+  const top = useClearance();
 
   return (
     <div className="console">
@@ -38,7 +57,10 @@ export function Frame({ children }) {
         <TopTools />
       </header>
 
-      <CommissionStatus mini status={commissions?.status ?? "open"} updated={commissions?.updated} />
+      <div className="corner" style={{ top }}>
+        <CommissionStatus mini status={commissions?.status ?? "open"} updated={commissions?.updated} />
+        {banner ? <p className="mature">{banner}</p> : null}
+      </div>
       <div className="well">{children}</div>
 
       <footer className="colophon">

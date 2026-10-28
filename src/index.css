@@ -1530,11 +1530,20 @@ a.directory__item:hover {
   --state: var(--l6);
 }
 
-.feed--mini {
+.corner {
   position: fixed;
   z-index: 9;
   top: 96px;
   left: max(24px, calc((100% - 1280px) / 2 + 24px));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 48px);
+}
+
+.feed--mini {
+  position: static;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -2625,6 +2634,32 @@ a.directory__item:hover {
   color: var(--ink);
 }
 
+.drawer__ambient {
+  margin: 2px 0 0;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: var(--accent);
+  font-family: var(--lcars);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.drawer__ambient:hover,
+.drawer__ambient[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+html[data-ambient="true"] .well,
+html[data-ambient="true"] .corner,
+html[data-ambient="true"] .colophon {
+  display: none;
+}
+
 a.brand {
   text-decoration: none;
 }
@@ -3102,7 +3137,7 @@ a.brand {
   .topbar { padding: 10px 14px; }
   .nav__btn { flex: 1 1 100px; }
   .well { padding: 18px 14px 28px; }
-  .feed--mini { left: 14px; }
+  .corner { left: 14px; max-width: calc(100% - 28px); }
 
   .window-head { max-width: none; min-height: 30vh; }
   .about { grid-template-columns: minmax(0, 1fr); }

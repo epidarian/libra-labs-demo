@@ -73,8 +73,9 @@ export function Viewport() {
       colors.star = cs.getPropertyValue("--star").trim() || colors.star;
       const bar = document.querySelector(".topbar");
       const foot = document.querySelector(".colophon");
+      const footBox = foot?.getBoundingClientRect();
       bounds.top = bar ? bar.getBoundingClientRect().bottom : 0;
-      bounds.bottom = foot ? Math.min(h, foot.getBoundingClientRect().top) : h;
+      bounds.bottom = footBox && footBox.height > 0 ? Math.min(h, footBox.top) : h;
     }
 
     function readSlew() {

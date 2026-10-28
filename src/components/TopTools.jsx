@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSiteMode } from "../context/SiteMode.jsx";
 import { usePatreon } from "../context/Patreon.jsx";
+import { loadDemoMode } from "../demoMode.js";
 import { OPS_PATH, onOps, siteHref } from "../ops/route.js";
 import { patreonConfig } from "../patreon.js";
 import { ModeSwitch } from "./ModeSwitch.jsx";
@@ -145,10 +146,15 @@ function SignInPanel() {
 }
 
 export function TopTools() {
-  const { lite, nsfw, toggleTheme, toggleRating } = useSiteMode();
+  const { lite, nsfw, ambient, toggleTheme, toggleRating, toggleAmbient } = useSiteMode();
   const { profile, status, error, isPatron } = usePatreon();
   const [open, setOpen] = useState(null);
+  const [demo, setDemo] = useState(false);
   const rootRef = useRef(null);
+
+  useEffect(() => {
+    loadDemoMode().then(setDemo);
+  }, []);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -225,9 +231,19 @@ export function TopTools() {
         >
           <ModeSwitch kind="rating" on={nsfw} onToggle={toggleRating} offLabel="SFW" onLabel="NSFW" />
           <ModeSwitch kind="theme" on={lite} onToggle={toggleTheme} offLabel="Dark" onLabel="Lite" />
-          <a className="drawer__link" href={siteHref(onOps ? "/" : OPS_PATH)}>
-            {onOps ? "Back to site" : "Operations"}
-          </a>
+          <button
+            type="button"
+            className="drawer__ambient"
+            aria-pressed={ambient}
+            onClick={toggleAmbient}
+          >
+            Ambient Mode
+          </button>
+          {(demo || onOps) && (
+            <a className="drawer__link" href={siteHref(onOps ? "/" : OPS_PATH)}>
+              {onOps ? "Back to site" : "Operations"}
+            </a>
+          )}
         </div>
       )}
 

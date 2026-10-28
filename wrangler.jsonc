@@ -10,7 +10,10 @@
     "logs": { "enabled": true, "head_sampling_rate": 1 },
     "traces": { "enabled": true, "head_sampling_rate": 0.01 }
   },
-  // Set DEMO to "0" here, or as a Worker variable, to clear demo behavior.
+  // "0" hides the placeholder catalog and removes the demonstration rows.
+  "vars": {
+    "DEMO": "0"
+  },
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/media/*"]
