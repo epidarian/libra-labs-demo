@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { loadDemoMode } from "../demoMode.js";
 import { CREATOR_STATE_KEY, creatorAuthorizeUrl, patreonIsLive } from "../patreon.js";
 import { ops } from "./api.js";
 
@@ -43,20 +44,25 @@ function exchangeCreatorCode() {
 }
 
 export function beginCreatorConnect(tab) {
-  if (!patreonIsLive()) return;
-  const state = crypto.randomUUID();
-  sessionStorage.setItem(CREATOR_STATE_KEY, state);
-  sessionStorage.setItem(RETURN_KEY, tab);
-  window.location.assign(creatorAuthorizeUrl(state));
+  loadDemoMode().then((demo) => {
+    if (demo || !patreonIsLive()) return;
+    const state = crypto.randomUUID();
+    sessionStorage.setItem(CREATOR_STATE_KEY, state);
+    sessionStorage.setItem(RETURN_KEY, tab);
+    window.location.assign(creatorAuthorizeUrl(state));
+  });
 }
 
 export function useCreatorReturn(run) {
   useEffect(() => {
-    const pending = exchangeCreatorCode();
-    if (!pending) return undefined;
     let active = true;
-    pending.finally(() => {
-      if (active) run(() => pending);
+    loadDemoMode().then((demo) => {
+      if (!active || demo) return;
+      const pending = exchangeCreatorCode();
+      if (!pending) return;
+      pending.finally(() => {
+        if (active) run(() => pending);
+      });
     });
     return () => {
       active = false;

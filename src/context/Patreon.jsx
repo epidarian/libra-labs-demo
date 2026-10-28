@@ -8,6 +8,15 @@ import {
   usePatreonLive,
 } from "../patreon.js";
 import { emailLive } from "../emailAuth.js";
+import {
+  beginGoogleSignIn,
+  discardGoogleReturn,
+  finishGoogleReturn,
+  googleExchange,
+  holdGoogleError,
+  isGoogleReturn,
+  takeGoogleError,
+} from "../googleAuth.js";
 import { loadDemoMode } from "../demoMode.js";
 
 const PatreonContext = createContext(null);
@@ -47,6 +56,8 @@ export function PatreonProvider({ children }) {
         return null;
       });
     });
+    const googleError = takeGoogleError();
+    if (googleError) setError(googleError);
     fetch("/api/auth/session")
       .then(async (res) => {
         if (cancel) return;
@@ -57,7 +68,7 @@ export function PatreonProvider({ children }) {
           return;
         }
         const stored = readProfile();
-        if (stored?.provider === "email") {
+        if (stored?.provider === "email" || stored?.provider === "google") {
           setProfile(null);
           saveProfile(null);
         }
@@ -69,28 +80,80 @@ export function PatreonProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    if (!code) return;
-    if (sessionStorage.getItem(CREATOR_STATE_KEY) === params.get("state")) return;
-    const expected = sessionStorage.getItem(STATE_KEY);
-    sessionStorage.removeItem(STATE_KEY);
-    window.history.replaceState(null, "", window.location.pathname);
-    if (!expected || params.get("state") !== expected) {
-      setError("Patreon sign-in could not be verified. Try again.");
-      return;
-    }
-    setStatus("connecting");
-    exchangeCode(code)
-      .then((next) => {
-        setProfile(next);
-        saveProfile(next);
+    let cancel = false;
+    loadDemoMode().then((demo) => {
+      if (cancel) return;
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code");
+      if (!code) return;
+      if (isGoogleReturn()) return;
+      if (demo) {
+        window.history.replaceState(null, "", window.location.pathname);
+        return;
+      }
+      if (sessionStorage.getItem(CREATOR_STATE_KEY) === params.get("state")) return;
+      const expected = sessionStorage.getItem(STATE_KEY);
+      sessionStorage.removeItem(STATE_KEY);
+      window.history.replaceState(null, "", window.location.pathname);
+      if (!expected || params.get("state") !== expected) {
+        setError("Patreon sign-in could not be verified. Try again.");
+        return;
+      }
+      setStatus("connecting");
+      exchangeCode(code)
+        .then((next) => {
+          setProfile(next);
+          saveProfile(next);
+          setStatus("idle");
+        })
+        .catch((err) => {
+          setError(err.message);
+          setStatus("idle");
+        });
+    });
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    loadDemoMode().then((demo) => {
+      if (cancel) return;
+      if (demo) {
+        discardGoogleReturn();
+        return;
+      }
+      const pending = googleExchange();
+      if (!pending) return;
+      setStatus("connecting");
+      pending.then((result) => {
+        if (cancel) return;
+        const here = `${window.location.pathname}${window.location.search}`;
+        if (result.error) {
+          if (result.back !== here) {
+            holdGoogleError(result.error);
+            window.location.assign(result.back);
+            return;
+          }
+          finishGoogleReturn();
+          setError(result.error);
+          setStatus("idle");
+          return;
+        }
+        setProfile(result.profile);
+        saveProfile(result.profile);
         setStatus("idle");
-      })
-      .catch((err) => {
-        setError(err.message);
-        setStatus("idle");
+        if (result.back !== here) {
+          window.location.assign(result.back);
+          return;
+        }
+        finishGoogleReturn();
       });
+    });
+    return () => {
+      cancel = true;
+    };
   }, []);
 
   const value = useMemo(
@@ -103,19 +166,18 @@ export function PatreonProvider({ children }) {
       isPatron: profile?.patronStatus === "active_patron",
       connect: () => {
         setError(null);
-        if (patreonIsLive()) {
-          const state = crypto.randomUUID();
-          sessionStorage.setItem(STATE_KEY, state);
-          window.location.assign(authorizeUrl(state));
-          return;
-        }
-        setStatus("connecting");
         loadDemoMode().then((demo) => {
-          if (!demo) {
-            setError("Patreon is not configured.");
-            setStatus("idle");
+          if (!demo && patreonIsLive()) {
+            const state = crypto.randomUUID();
+            sessionStorage.setItem(STATE_KEY, state);
+            window.location.assign(authorizeUrl(state));
             return;
           }
+          if (!demo) {
+            setError("Patreon is not configured.");
+            return;
+          }
+          setStatus("connecting");
           window.setTimeout(() => {
             setProfile(demoProfile);
             saveProfile(demoProfile);
@@ -147,6 +209,20 @@ export function PatreonProvider({ children }) {
         } catch (err) {
           setError(err.message);
         } finally {
+          setStatus("idle");
+        }
+      },
+      signInWithGoogle: async () => {
+        setError(null);
+        if (await loadDemoMode()) {
+          setError("Demo mode.");
+          return;
+        }
+        setStatus("connecting");
+        try {
+          await beginGoogleSignIn();
+        } catch (err) {
+          setError(err.message);
           setStatus("idle");
         }
       },

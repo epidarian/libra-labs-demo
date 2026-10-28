@@ -1,3 +1,5 @@
+import { demoAllowed } from "./demo.js";
+import { googleUser } from "./google.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
@@ -53,10 +55,10 @@ export function isAdmin(env, user) {
 
 function profile(env, user) {
   return {
-    name: user.email.split("@")[0],
+    name: user.name || user.email.split("@")[0],
     email: user.email,
-    image: null,
-    provider: "email",
+    image: user.image || null,
+    provider: user.provider || "email",
     patronStatus: null,
     amountCents: 0,
     role: isAdmin(env, user) ? "admin" : "user",
@@ -101,7 +103,8 @@ export async function userForRequest(env, request) {
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
   return env.DB.prepare(
-    `SELECT users.id AS id, users.email AS email, users.role AS role
+    `SELECT users.id AS id, users.email AS email, users.role AS role,
+            users.name AS name, users.image AS image, users.provider AS provider
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token_hash = ? AND sessions.expires_at > ?
@@ -127,6 +130,17 @@ export async function handleAuth(request, env, url) {
         .run();
     }
     return json({ ok: true }, 200, { "Set-Cookie": cookie(request, "", 0) });
+  }
+
+  if (request.method === "GET" && path === "/api/auth/google") {
+    if (demoAllowed(env)) return json({ error: "Demo mode." }, 503);
+    const clientId = String(env.GOOGLE_CLIENT_ID || "").trim();
+    if (!clientId) return json({ error: "Google sign-in is not configured." }, 503);
+    return json({ clientId });
+  }
+
+  if (request.method === "POST" && path === "/api/auth/google") {
+    return signInWithGoogle(env, request);
   }
 
   if (request.method !== "POST") return json({ error: "Not found." }, 404);
@@ -157,7 +171,7 @@ export async function handleAuth(request, env, url) {
 
   if (path === "/api/auth/login") {
     const user = await env.DB.prepare(
-      "SELECT id, email, role, disabled_at, password_hash FROM users WHERE email = ?"
+      "SELECT id, email, role, disabled_at, password_hash, name, image, provider FROM users WHERE email = ?"
     )
       .bind(fields.email)
       .first();
@@ -174,4 +188,63 @@ export async function handleAuth(request, env, url) {
   }
 
   return json({ error: "Not found." }, 404);
+}
+
+async function signInWithGoogle(env, request) {
+  const body = await readBody(request);
+  let redirect;
+  try {
+    redirect = new URL(body?.redirect_uri);
+  } catch {
+    return json({ error: "Bad request." }, 400);
+  }
+  const here = new URL(request.url);
+  if (!body?.code || redirect.origin !== here.origin || redirect.pathname !== "/ops") {
+    return json({ error: "Bad request." }, 400);
+  }
+
+  const identity = await googleUser(env, body.code, redirect.toString());
+  if (identity.error) return json({ error: identity.error }, identity.status);
+
+  const existing = await env.DB.prepare(
+    "SELECT id, email, role, disabled_at FROM users WHERE email = ?"
+  )
+    .bind(identity.email)
+    .first();
+  if (existing?.disabled_at) return json({ error: "This account is disabled." }, 403);
+
+  let user = existing;
+  if (user) {
+    await env.DB.prepare("UPDATE users SET name = ?, image = ?, provider = 'google' WHERE id = ?")
+      .bind(identity.name, identity.image, user.id)
+      .run();
+  } else {
+    user = { id: crypto.randomUUID(), email: identity.email, role: "user" };
+    try {
+      await env.DB.prepare(
+        "INSERT INTO users (id, email, password_hash, name, image, provider) VALUES (?, ?, '', ?, ?, 'google')"
+      )
+        .bind(user.id, identity.email, identity.name, identity.image)
+        .run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("UNIQUE")) {
+        console.error(JSON.stringify({ message: "google sign-in failed", error: message }));
+        return json({ error: "Something went wrong." }, 500);
+      }
+      user = await env.DB.prepare("SELECT id, email, role, disabled_at FROM users WHERE email = ?")
+        .bind(identity.email)
+        .first();
+      if (!user) return json({ error: "Something went wrong." }, 500);
+      if (user.disabled_at) return json({ error: "This account is disabled." }, 403);
+    }
+  }
+
+  console.log(JSON.stringify({ message: "signed in with google" }));
+  return openSession(env, request, {
+    ...user,
+    name: identity.name,
+    image: identity.image,
+    provider: "google",
+  });
 }

@@ -1,5 +1,6 @@
 import { cookie, json, readCookie } from "./auth.js";
 import { readSettings, writeSetting } from "./content.js";
+import { demoAllowed } from "./demo.js";
 
 const IDENTITY_URL =
   "https://www.patreon.com/api/oauth2/v2/identity" +
@@ -112,6 +113,13 @@ async function tokenRequest(env, params, signal) {
 }
 
 export async function handlePatreon(request, env) {
+  if (demoAllowed(env)) {
+    if (request.method === "GET") return json({ clientId: "" });
+    if (request.method === "DELETE") {
+      return json({ ok: true }, 200, { "Set-Cookie": await patronCookie(request, env, null) });
+    }
+    return json({ error: "Patreon is not configured." }, 503);
+  }
   if (request.method === "GET") {
     return json({ clientId: patreonCredentials(env).id });
   }
@@ -186,6 +194,7 @@ export async function campaignStatus(env) {
 }
 
 export async function connectCampaign(env, requestUrl, body) {
+  if (demoAllowed(env)) return { error: "Patreon is not configured.", status: 503 };
   if (!patreonCredentials(env).id || !patreonCredentials(env).secret) {
     return { error: "Patreon is not configured.", status: 503 };
   }
@@ -282,6 +291,7 @@ async function patreonGet(env, path, signal) {
 }
 
 export async function syncTiers(env) {
+  if (demoAllowed(env)) return { error: "Patreon is not configured.", status: 503 };
   const result = await patreonGet(
     env,
     "/api/oauth2/v2/campaigns?include=tiers&fields%5Btier%5D=title,amount_cents,published"
@@ -317,6 +327,9 @@ function probeError(error) {
 
 // Confirms the stored campaign token can still read the campaign. Does not rewrite tiers.
 export async function patreonHealth(env) {
+  if (demoAllowed(env)) {
+    return { configured: false, connected: false, ok: false, detail: "Demo mode." };
+  }
   const status = await campaignStatus(env);
   if (!status.configured) {
     return { ...status, ok: false, detail: "Client id and secret are unset." };

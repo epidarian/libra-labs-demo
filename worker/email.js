@@ -1,12 +1,15 @@
 import { describeLine, formatCents } from "../src/commissionPricing.js";
+import { demoAllowed } from "./demo.js";
 
 const STUDIO = "Libra Labs";
 
 export function emailConfigured(env) {
+  if (demoAllowed(env)) return false;
   return Boolean(env.EMAIL && env.EMAIL_FROM);
 }
 
 export function emailHealth(env) {
+  if (demoAllowed(env)) return { configured: false, ok: false, detail: "Demo mode." };
   const binding = typeof env.EMAIL?.send === "function";
   const from = String(env.EMAIL_FROM || "").trim();
   const replyTo = String(env.EMAIL_REPLY_TO || "").trim();

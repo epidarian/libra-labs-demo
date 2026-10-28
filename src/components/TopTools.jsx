@@ -39,7 +39,7 @@ function Avatar({ profile, size }) {
 
 function AccountCard() {
   const { profile, isPatron, disconnect } = usePatreon();
-  const viaEmail = profile.provider === "email";
+  const viaEmail = profile.provider === "email" || profile.provider === "google";
   return (
     <div className="account">
       <div className="account__head">
@@ -68,11 +68,16 @@ function AccountCard() {
 }
 
 function SignInPanel() {
-  const { status, error, live, emailLive, connect, signInWithEmail } = usePatreon();
+  const { status, error, live, emailLive, connect, signInWithEmail, signInWithGoogle } = usePatreon();
   const [create, setCreate] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [demo, setDemo] = useState(false);
   const connecting = status === "connecting";
+
+  useEffect(() => {
+    loadDemoMode().then(setDemo);
+  }, []);
 
   const submit = (event) => {
     event.preventDefault();
@@ -124,10 +129,11 @@ function SignInPanel() {
         <button type="submit" className="btn" disabled={connecting}>
           {create ? "Create account" : "Sign in"}
         </button>
-        <button type="button" className="btn btn--google">
+        <button type="button" className="btn btn--google" onClick={signInWithGoogle} disabled={connecting || demo}>
           <GoogleMark />
           Sign in with Google
         </button>
+        {demo ? <p className="drawer__meta">Demo mode.</p> : null}
         <button type="button" className="login__switch" onClick={() => setCreate((on) => !on)}>
           {create ? "Have an account? Sign in" : "New here? Create an account"}
         </button>
@@ -177,7 +183,7 @@ export function TopTools() {
   }, [error]);
 
   const toggle = (id) => setOpen((current) => (current === id ? null : id));
-  const viaPatreon = profile && profile.provider !== "email";
+  const viaPatreon = profile && profile.provider !== "email" && profile.provider !== "google";
 
   return (
     <div className="tools" ref={rootRef}>

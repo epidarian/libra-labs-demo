@@ -24,10 +24,8 @@ export function loadPatreonClient() {
       .then(async (res) => {
         if (!res.ok) return;
         const body = await res.json();
-        if (body.clientId) {
-          patreonConfig.clientId = body.clientId;
-          notify();
-        }
+        patreonConfig.clientId = body.clientId || "";
+        notify();
       })
       .catch(() => {});
   }

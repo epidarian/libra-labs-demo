@@ -9,6 +9,7 @@ import { ConventionsTab } from "./ConventionsTab.jsx";
 import { creatorReturnTab } from "./creatorConnect.js";
 import { DashboardTab } from "./DashboardTab.jsx";
 import { GalleryTab } from "./GalleryTab.jsx";
+import { pendingGoogleReturn } from "../googleAuth.js";
 import { loadDemoMode } from "../demoMode.js";
 import { demoOpsOpen, workerAnswered } from "./demoAccess.js";
 import { NotFound } from "./NotFound.jsx";
@@ -43,13 +44,14 @@ function useAccess() {
 
 export function OpsPanel() {
   const [access, recheck] = useAccess();
+  const googleReturn = pendingGoogleReturn();
   const [tab, setTab] = useState(() => {
     const back = creatorReturnTab();
     if (!back) return TABS[0].id;
     return TABS.some((item) => item.id === back) ? back : "gallery";
   });
 
-  if (access === null) return null;
+  if (googleReturn || access === null) return null;
   if (!access) return <NotFound onUnlock={recheck} />;
 
   const { label, Panel } = TABS.find((item) => item.id === tab);

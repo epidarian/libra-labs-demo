@@ -1,4 +1,5 @@
 import { describeLine, formatCents } from "../src/commissionPricing.js";
+import { demoAllowed } from "./demo.js";
 
 const ENDPOINT = "https://api.linear.app/graphql";
 
@@ -25,6 +26,7 @@ const FILE_UPLOAD = `
 `;
 
 export function linearConfigured(env) {
+  if (demoAllowed(env)) return false;
   return Boolean(env.LINEAR_API_KEY);
 }
 
@@ -157,6 +159,7 @@ function probeError(error) {
 
 // Confirms the API key and, when set, that the fallback team can be resolved.
 export async function linearHealth(env) {
+  if (demoAllowed(env)) return { configured: false, ok: false, detail: "Demo mode." };
   if (!linearConfigured(env)) {
     return { configured: false, ok: false, detail: "API key is unset." };
   }
