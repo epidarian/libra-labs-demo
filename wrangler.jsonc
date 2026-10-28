@@ -16,7 +16,7 @@
   },
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/media/*"]
+    "run_worker_first": ["/api/*", "/media/*", "/tos.txt", "/privacy-policy.txt"]
   },
   // Replaced with the id from `wrangler d1 create libra-labs-auth`.
   "d1_databases": [

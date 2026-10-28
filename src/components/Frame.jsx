@@ -65,6 +65,11 @@ export function Frame({ children }) {
 
       <footer className="colophon">
         <span>Libra Labs</span>
+        <span>
+          <a href="/tos.txt">Terms</a>
+          {" · "}
+          <a href="/privacy-policy.txt">Privacy</a>
+        </span>
         <span>Pictures, comics, prints</span>
         <span>
           {rating.toUpperCase()} / {theme === "lite" ? "LITE" : "DARK"}

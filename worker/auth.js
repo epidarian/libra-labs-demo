@@ -1,6 +1,7 @@
 import { demoAllowed } from "./demo.js";
 import { googleUser } from "./google.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
+import { patronClaim } from "./patreon.js";
 
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
 const COOKIE = "libra_session";
@@ -85,7 +86,7 @@ export async function readBody(request) {
   }
 }
 
-async function openSession(env, request, user) {
+export async function openSession(env, request, user, extra = {}) {
   const token = randomToken();
   const expires = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
   await env.DB.prepare(
@@ -93,9 +94,65 @@ async function openSession(env, request, user) {
   )
     .bind(await tokenHash(token), user.id, expires)
     .run();
-  return json(profile(env, user), 200, {
-    "Set-Cookie": cookie(request, token, SESSION_SECONDS),
+  const headers = new Headers({ "Content-Type": "application/json" });
+  headers.append("Set-Cookie", cookie(request, token, SESSION_SECONDS));
+  if (extra.cookie) headers.append("Set-Cookie", extra.cookie);
+  return new Response(JSON.stringify({ ...profile(env, user), ...extra.fields }), {
+    status: 200,
+    headers,
   });
+}
+
+export async function savePatronUser(env, { email, name, image }) {
+  const address = String(email || "").trim().toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(address) || address.length > 254) {
+    return { error: "Patreon did not share an email address.", status: 409 };
+  }
+  const displayName = String(name || "").trim().slice(0, 200) || address.split("@")[0];
+  const picture = image ? String(image).slice(0, 2000) : null;
+  const existing = await env.DB.prepare(
+    "SELECT id, email, role, disabled_at, name, image, provider FROM users WHERE email = ?"
+  )
+    .bind(address)
+    .first();
+  if (existing?.disabled_at) return { error: "This account is disabled.", status: 403 };
+  if (existing) {
+    await env.DB.prepare("UPDATE users SET name = ?, image = ? WHERE id = ?")
+      .bind(displayName, picture, existing.id)
+      .run();
+    return { user: { ...existing, name: displayName, image: picture } };
+  }
+
+  const user = {
+    id: crypto.randomUUID(),
+    email: address,
+    role: "user",
+    name: displayName,
+    image: picture,
+    provider: "patreon",
+  };
+  try {
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, name, image, provider) VALUES (?, ?, '', ?, ?, 'patreon')"
+    )
+      .bind(user.id, user.email, user.name, user.image)
+      .run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("UNIQUE")) {
+      console.error(JSON.stringify({ message: "patreon sign-in failed", error: message }));
+      return { error: "Something went wrong.", status: 500 };
+    }
+    const raced = await env.DB.prepare(
+      "SELECT id, email, role, disabled_at, name, image, provider FROM users WHERE email = ?"
+    )
+      .bind(address)
+      .first();
+    if (!raced) return { error: "Something went wrong.", status: 500 };
+    if (raced.disabled_at) return { error: "This account is disabled.", status: 403 };
+    return { user: raced };
+  }
+  return { user };
 }
 
 export async function userForRequest(env, request) {
@@ -119,7 +176,7 @@ export async function handleAuth(request, env, url) {
   if (request.method === "GET" && path === "/api/auth/session") {
     const user = await userForRequest(env, request);
     if (!user) return json({ error: "Not signed in." }, 401);
-    return json(profile(env, user));
+    return json({ ...profile(env, user), ...(await patronClaim(request, env)) });
   }
 
   if (request.method === "POST" && path === "/api/auth/logout") {

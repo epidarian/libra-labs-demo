@@ -889,6 +889,17 @@ a {
   padding: 18px 24px 32px;
 }
 
+.colophon a,
+.gate__notice a,
+.terms__copy a {
+  color: var(--accent);
+}
+
+.terms__copy {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+}
+
 .colophon {
   display: flex;
   flex-wrap: wrap;

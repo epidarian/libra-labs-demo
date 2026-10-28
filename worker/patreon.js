@@ -1,11 +1,11 @@
-import { cookie, json, readCookie } from "./auth.js";
+import { cookie, json, openSession, readCookie, savePatronUser } from "./auth.js";
 import { readSettings, writeSetting } from "./content.js";
 import { demoAllowed } from "./demo.js";
 
 const IDENTITY_URL =
   "https://www.patreon.com/api/oauth2/v2/identity" +
   "?include=memberships" +
-  "&fields%5Buser%5D=full_name,image_url" +
+  "&fields%5Buser%5D=email,full_name,image_url" +
   "&fields%5Bmember%5D=patron_status,currently_entitled_amount_cents";
 
 const CAMPAIGNS_URL =
@@ -88,6 +88,12 @@ async function readPatron(request, env) {
   }
 }
 
+export async function patronClaim(request, env) {
+  const body = await readPatron(request, env);
+  if (!body) return { patronStatus: null, amountCents: 0 };
+  return { patronStatus: "active_patron", amountCents: Number(body.c) || 0 };
+}
+
 export async function isActivePatron(request, env) {
   return Boolean(await readPatron(request, env));
 }
@@ -162,25 +168,21 @@ export async function handlePatreon(request, env) {
   if (!idRes.ok) return json({ error: "Identity lookup failed" }, 502);
   const identity = await idRes.json();
 
+  const attributes = identity.data?.attributes || {};
   const member = (identity.included || []).find((item) => item.type === "member");
   const patronStatus = member?.attributes.patron_status ?? null;
-  return json(
-    {
-      name: identity.data.attributes.full_name,
-      image: identity.data.attributes.image_url,
-      patronStatus,
-      amountCents: member?.attributes.currently_entitled_amount_cents ?? 0,
-    },
-    200,
-    {
-      "Set-Cookie": await patronCookie(
-        request,
-        env,
-        patronStatus,
-        member?.attributes.currently_entitled_amount_cents ?? 0
-      ),
-    }
-  );
+  const amountCents = member?.attributes.currently_entitled_amount_cents ?? 0;
+  const saved = await savePatronUser(env, {
+    email: attributes.email,
+    name: attributes.full_name,
+    image: attributes.image_url,
+  });
+  if (saved.error) return json({ error: saved.error }, saved.status);
+  console.log(JSON.stringify({ message: "signed in with patreon" }));
+  return openSession(env, request, saved.user, {
+    cookie: await patronCookie(request, env, patronStatus, amountCents),
+    fields: { patronStatus, amountCents },
+  });
 }
 
 export async function campaignStatus(env) {

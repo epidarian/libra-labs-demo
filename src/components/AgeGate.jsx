@@ -55,7 +55,8 @@ export function AgeGate() {
           This site stores your age confirmation and display settings in your
           browser's local storage. Email sign-in uses a session cookie. It does
           not use tracking or advertising cookies. Patreon sets its own cookies
-          when you sign in with Patreon.
+          when you sign in with Patreon.{" "}
+          <a href="/privacy-policy.txt">Privacy policy</a>.
         </p>
 
         <div className="gate__actions">

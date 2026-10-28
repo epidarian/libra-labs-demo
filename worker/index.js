@@ -2,6 +2,7 @@ import { handleAuth } from "./auth.js";
 import { handleContent } from "./content.js";
 import { clearDemoData, demoAllowed } from "./demo.js";
 import { handleMedia } from "./gallery.js";
+import { handleLegal } from "./legal.js";
 import { handleOps } from "./ops.js";
 import { handlePatreon } from "./patreon.js";
 
@@ -17,6 +18,8 @@ export default {
       }
       if (url.pathname.startsWith("/api/ops/")) return await handleOps(request, env, url);
       if (url.pathname.startsWith("/media/")) return await handleMedia(request, env, url);
+      const legal = await handleLegal(request, env, url);
+      if (legal) return legal;
     } catch (error) {
       console.error(
         JSON.stringify({

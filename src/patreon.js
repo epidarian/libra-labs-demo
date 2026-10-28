@@ -4,7 +4,7 @@ export const patreonConfig = {
   clientId: import.meta.env.VITE_PATREON_CLIENT_ID || "",
   exchangeUrl: import.meta.env.VITE_PATREON_EXCHANGE_URL || "/api/patreon",
   pageUrl: import.meta.env.VITE_PATREON_PAGE_URL || "https://www.patreon.com/",
-  scope: "identity",
+  scope: "identity identity[email]",
 };
 
 export function patreonIsLive() {

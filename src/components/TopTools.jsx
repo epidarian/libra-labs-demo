@@ -52,6 +52,7 @@ function AccountCard() {
               : isPatron
                 ? `Patron, $${(profile.amountCents / 100).toFixed(2)} / month`
                 : "Not a current patron"}
+            {profile.provider === "patreon" && profile.email ? ` · ${profile.email}` : ""}
             {profile.demo ? " (demo)" : ""}
           </p>
         </div>

@@ -415,8 +415,8 @@ function TermsEditor({ terms, run }) {
     <section className="ops__queue">
       <h3 className="panel__title">Terms of Service</h3>
       <p className="ops__muted">
-        One term per paragraph; leave a blank line between terms. They are numbered in order. Each request
-        records the version its sender agreed to. Last changed {shortDate(terms.updated)}.
+        One term per paragraph; leave a blank line between terms. They are numbered in order and published
+        at /tos.txt. Each request records the version its sender agreed to. Last changed {shortDate(terms.updated)}.
       </p>
       <div className="field">
         <textarea

@@ -35,6 +35,9 @@ function TermsDialog({ dialog, terms, onAgree }) {
           <li key={item}>{item}</li>
         ))}
       </ol>
+      <p className="terms__copy">
+        <a href="/tos.txt">Open the full terms as text</a>
+      </p>
       <div className="contact__actions">
         <button type="button" className="btn" onClick={onAgree}>
           I agree
