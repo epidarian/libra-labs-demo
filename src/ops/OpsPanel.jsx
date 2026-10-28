@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { CREATOR_STATE_KEY } from "../patreon.js";
 import { Logo } from "../components/Logo.jsx";
 import { TopTools } from "../components/TopTools.jsx";
 import { Viewport } from "../components/Viewport.jsx";
@@ -7,6 +6,8 @@ import { usePatreon } from "../context/Patreon.jsx";
 import { AboutEditor } from "./AboutEditor.jsx";
 import { CommissionsTab } from "./CommissionsTab.jsx";
 import { ConventionsTab } from "./ConventionsTab.jsx";
+import { creatorReturnTab } from "./creatorConnect.js";
+import { DashboardTab } from "./DashboardTab.jsx";
 import { GalleryTab } from "./GalleryTab.jsx";
 import { loadDemoMode } from "../demoMode.js";
 import { demoOpsOpen, workerAnswered } from "./demoAccess.js";
@@ -15,6 +16,7 @@ import { siteHref } from "./route.js";
 import { UsersTab } from "./UsersTab.jsx";
 
 const TABS = [
+  { id: "dashboard", label: "Dashboard", Panel: DashboardTab },
   { id: "commissions", label: "Commissions", Panel: CommissionsTab },
   { id: "gallery", label: "Gallery", Panel: GalleryTab },
   { id: "conventions", label: "Conventions", Panel: ConventionsTab },
@@ -42,9 +44,9 @@ function useAccess() {
 export function OpsPanel() {
   const [access, recheck] = useAccess();
   const [tab, setTab] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const returning = sessionStorage.getItem(CREATOR_STATE_KEY) === params.get("state") && params.get("code");
-    return returning ? "gallery" : TABS[0].id;
+    const back = creatorReturnTab();
+    if (!back) return TABS[0].id;
+    return TABS.some((item) => item.id === back) ? back : "gallery";
   });
 
   if (access === null) return null;

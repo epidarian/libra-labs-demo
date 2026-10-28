@@ -1,6 +1,7 @@
-import { useEffect, useId, useState } from "react";
-import { CREATOR_STATE_KEY, creatorAuthorizeUrl, patreonLive } from "../patreon.js";
+import { useId, useState } from "react";
+import { patreonLive } from "../patreon.js";
 import { ops, opsUpload, useOps } from "./api.js";
+import { beginCreatorConnect, useCreatorReturn } from "./creatorConnect.js";
 import { Notice } from "./Notice.jsx";
 
 function blankForm() {
@@ -17,7 +18,6 @@ function blankForm() {
 }
 
 const SLOT_LABEL = { thumb: "Thumbnail", full: "Picture", extra: "Other files" };
-let creatorCodeClaimed = false;
 
 function sizeLabel(bytes) {
   if (!bytes) return "";
@@ -369,6 +369,7 @@ function marks(work, tiers) {
 
 export function GalleryTab() {
   const { data, error, run } = useOps("gallery");
+  useCreatorReturn(run);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
@@ -390,22 +391,6 @@ export function GalleryTab() {
   });
   const active = works.find((work) => work.id === editing) || null;
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    const state = params.get("state");
-    if (!code || sessionStorage.getItem(CREATOR_STATE_KEY) !== state || creatorCodeClaimed) return;
-    creatorCodeClaimed = true;
-    sessionStorage.removeItem(CREATOR_STATE_KEY);
-    window.history.replaceState(null, "", window.location.pathname);
-    run(() =>
-      ops("gallery/patreon/connect", {
-        method: "POST",
-        body: { code, redirect_uri: `${window.location.origin}/ops` },
-      })
-    );
-  }, [run]);
-
   const create = async (form) => {
     const result = await run(() => ops("gallery", { method: "POST", body: form }));
     if (result?.work) {
@@ -415,12 +400,7 @@ export function GalleryTab() {
     return Boolean(result);
   };
 
-  const connect = () => {
-    if (!patreonLive) return;
-    const state = crypto.randomUUID();
-    sessionStorage.setItem(CREATOR_STATE_KEY, state);
-    window.location.assign(creatorAuthorizeUrl(state));
-  };
+  const connect = () => beginCreatorConnect("gallery");
 
   const refreshTiers = () => run(() => ops("gallery/tiers", { method: "POST" }));
 

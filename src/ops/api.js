@@ -33,15 +33,21 @@ export function useOps(path) {
   const [error, setError] = useState(null);
 
   const reload = useCallback(() => {
-    ops(path)
+    return ops(path)
       .then((next) => {
         setData(next);
         setError(null);
+        return next;
       })
-      .catch((err) => setError(err.message));
+      .catch((err) => {
+        setError(err.message);
+        return null;
+      });
   }, [path]);
 
-  useEffect(reload, [reload]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const run = useCallback(
     async (request) => {
@@ -58,7 +64,7 @@ export function useOps(path) {
     [reload]
   );
 
-  return { data, error, run };
+  return { data, error, reload, run };
 }
 
 export const shortDate = (iso) => (iso ? String(iso).slice(0, 10) : "-");

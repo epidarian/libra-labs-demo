@@ -2,6 +2,7 @@ import { isAdmin, json, readBody, userForRequest } from "./auth.js";
 import { handleCommissionOps } from "./commissions.js";
 import { RATINGS, sameOrigin, text, writeSetting } from "./content.js";
 import { handleGalleryRoutes, handleGalleryUpload, normalizeTag } from "./gallery.js";
+import { serviceHealth } from "./health.js";
 import { codeMatches, hasPass, issuePass } from "./opsPass.js";
 
 const ROLES = ["user", "admin"];
@@ -216,6 +217,7 @@ export async function handleOps(request, env, url) {
   if (!user) return notFound();
 
   if (resource === "access" && !id && method === "GET") return json({ ok: true });
+  if (resource === "health" && !id && method === "GET") return json(await serviceHealth(env));
 
   if (resource === "users") {
     if (!id && method === "GET") return listUsers(env, user);

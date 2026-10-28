@@ -87,7 +87,7 @@ export async function entitledCents(request, env) {
   return body ? Number(body.c) || 0 : 0;
 }
 
-async function tokenRequest(env, params) {
+async function tokenRequest(env, params, signal) {
   const res = await fetch("https://www.patreon.com/api/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -96,6 +96,7 @@ async function tokenRequest(env, params) {
       client_secret: env.PATREON_CLIENT_SECRET,
       ...params,
     }),
+    signal,
   });
   if (!res.ok) return null;
   return res.json();
@@ -226,7 +227,7 @@ export async function disconnectCampaign(env) {
   return { ok: true };
 }
 
-async function creatorToken(env, force = false) {
+async function creatorToken(env, force = false, signal) {
   const settings = await readSettings(env);
   const saved = settings[CREATOR_KEY];
   if (!saved?.refresh_token) return null;
@@ -235,7 +236,7 @@ async function creatorToken(env, force = false) {
   const token = await tokenRequest(env, {
     grant_type: "refresh_token",
     refresh_token: saved.refresh_token,
-  });
+  }, signal);
   if (!token?.access_token) return null;
   const next = {
     ...saved,
@@ -247,12 +248,13 @@ async function creatorToken(env, force = false) {
   return next;
 }
 
-async function patreonGet(env, path) {
+async function patreonGet(env, path, signal) {
   const load = async (force) => {
-    const auth = await creatorToken(env, force);
+    const auth = await creatorToken(env, force, signal);
     if (!auth) return { error: "Connect the Patreon campaign first.", status: 409 };
     const res = await fetch(`https://www.patreon.com${path}`, {
       headers: { Authorization: `Bearer ${auth.access_token}` },
+      signal,
     });
     return res;
   };
@@ -294,5 +296,44 @@ export async function syncTiers(env) {
   await env.DB.batch(statements);
   console.log(JSON.stringify({ message: "patreon tiers synced", count: included.length }));
   return { ok: true };
+}
+
+function probeError(error) {
+  if (error?.name === "TimeoutError" || error?.name === "AbortError") return "Patreon did not answer.";
+  return error instanceof Error ? error.message : "Patreon request failed.";
+}
+
+// Confirms the stored campaign token can still read the campaign. Does not rewrite tiers.
+export async function patreonHealth(env) {
+  const status = await campaignStatus(env);
+  if (!status.configured) {
+    return { ...status, ok: false, detail: "Client id and secret are unset." };
+  }
+  if (!status.connected) {
+    return { ...status, ok: false, detail: "Connect the campaign to sync tiers." };
+  }
+  try {
+    const result = await patreonGet(
+      env,
+      "/api/oauth2/v2/campaigns?fields%5Bcampaign%5D=creation_name",
+      AbortSignal.timeout(8000)
+    );
+    if (result.error) {
+      const detail =
+        result.error === "Connect the Patreon campaign first."
+          ? "The campaign token was refused. Reconnect."
+          : result.error;
+      console.error(JSON.stringify({ message: "patreon health failed", error: detail }));
+      return { ...status, ok: false, detail };
+    }
+    const row = await env.DB.prepare("SELECT COUNT(*) AS n FROM tiers").first();
+    const tiers = Number(row?.n) || 0;
+    const name = status.campaign || "Campaign";
+    const stored = tiers === 1 ? "1 tier stored" : `${tiers} tiers stored`;
+    return { ...status, ok: true, tiers, detail: `${name} · ${stored}` };
+  } catch (error) {
+    console.error(JSON.stringify({ message: "patreon health failed", error: probeError(error) }));
+    return { ...status, ok: false, detail: probeError(error) };
+  }
 }
 

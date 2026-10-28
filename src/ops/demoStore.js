@@ -297,6 +297,15 @@ export function demoOps(path, { method = "GET", body } = {}) {
   const data = db();
   const [resource, id, action, extra] = path.split("/");
 
+  if (resource === "health" && !id && method === "GET") {
+    return {
+      checkedAt: "2026-10-27T00:00:00.000Z",
+      patreon: { configured: false, connected: false, ok: false, detail: "Client id and secret are unset." },
+      linear: { configured: false, ok: false, detail: "API key is unset." },
+      email: { configured: false, ok: false, detail: "EMAIL binding is unset." },
+    };
+  }
+
   if (resource === "commissions") return demoCommissions(method, id, action, body);
 
   if (resource === "users" && !id && method === "GET") {

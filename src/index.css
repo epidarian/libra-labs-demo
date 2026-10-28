@@ -2825,9 +2825,43 @@ a.brand {
   vertical-align: middle;
 }
 
-.ops__list {
+.ops__list,
+.ops__health {
   display: grid;
   gap: 10px;
+}
+
+.ops__service {
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--muted);
+  border-radius: 0 16px 16px 0;
+}
+
+.ops__service[data-state="up"] { border-left-color: var(--l4); }
+.ops__service[data-state="down"] { border-left-color: var(--l6); }
+
+.ops__service-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ops__service-head h3 {
+  margin: 0;
+  font-family: var(--lcars);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ops__service-head .ops__tag {
+  margin-left: 0;
 }
 
 .ops__request {

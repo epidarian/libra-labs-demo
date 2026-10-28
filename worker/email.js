@@ -6,6 +6,16 @@ export function emailConfigured(env) {
   return Boolean(env.EMAIL && env.EMAIL_FROM);
 }
 
+export function emailHealth(env) {
+  const binding = typeof env.EMAIL?.send === "function";
+  const from = String(env.EMAIL_FROM || "").trim();
+  const replyTo = String(env.EMAIL_REPLY_TO || "").trim();
+  if (!binding) return { configured: false, ok: false, detail: "EMAIL binding is unset." };
+  if (!from) return { configured: false, ok: false, detail: "EMAIL_FROM is unset." };
+  const detail = replyTo ? `Sending as ${from}. Replies go to ${replyTo}.` : `Sending as ${from}.`;
+  return { configured: true, ok: true, from, replyTo, detail };
+}
+
 const escapeHtml = (value) =>
   String(value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
