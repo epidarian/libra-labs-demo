@@ -4,7 +4,8 @@ import {
   CREATOR_STATE_KEY,
   demoProfile,
   exchangeCode,
-  patreonLive,
+  patreonIsLive,
+  usePatreonLive,
 } from "../patreon.js";
 import { emailLive } from "../emailAuth.js";
 import { loadDemoMode } from "../demoMode.js";
@@ -34,6 +35,7 @@ export function PatreonProvider({ children }) {
   const [profile, setProfile] = useState(readProfile);
   const [status, setStatus] = useState("idle");
   const [error, setError] = useState(null);
+  const live = usePatreonLive();
 
   useEffect(() => {
     let cancel = false;
@@ -96,12 +98,12 @@ export function PatreonProvider({ children }) {
       profile,
       status,
       error,
-      live: patreonLive,
+      live,
       emailLive,
       isPatron: profile?.patronStatus === "active_patron",
       connect: () => {
         setError(null);
-        if (patreonLive) {
+        if (patreonIsLive()) {
           const state = crypto.randomUUID();
           sessionStorage.setItem(STATE_KEY, state);
           window.location.assign(authorizeUrl(state));
@@ -155,7 +157,7 @@ export function PatreonProvider({ children }) {
         saveProfile(null);
       },
     }),
-    [profile, status, error]
+    [profile, status, error, live]
   );
 
   return (

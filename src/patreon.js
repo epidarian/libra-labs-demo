@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export const patreonConfig = {
   clientId: import.meta.env.VITE_PATREON_CLIENT_ID || "",
   exchangeUrl: import.meta.env.VITE_PATREON_EXCHANGE_URL || "/api/patreon",
@@ -5,9 +7,43 @@ export const patreonConfig = {
   scope: "identity",
 };
 
-export const patreonLive = Boolean(
-  patreonConfig.clientId && patreonConfig.exchangeUrl
-);
+export function patreonIsLive() {
+  return Boolean(patreonConfig.clientId && patreonConfig.exchangeUrl);
+}
+
+const listeners = new Set();
+let clientLoad = null;
+
+function notify() {
+  listeners.forEach((listener) => listener());
+}
+
+export function loadPatreonClient() {
+  if (!clientLoad) {
+    clientLoad = fetch(patreonConfig.exchangeUrl)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const body = await res.json();
+        if (body.clientId) {
+          patreonConfig.clientId = body.clientId;
+          notify();
+        }
+      })
+      .catch(() => {});
+  }
+  return clientLoad;
+}
+
+export function usePatreonLive() {
+  const [live, setLive] = useState(patreonIsLive);
+  useEffect(() => {
+    const update = () => setLive(patreonIsLive());
+    listeners.add(update);
+    loadPatreonClient().then(update);
+    return () => listeners.delete(update);
+  }, []);
+  return live;
+}
 
 export function redirectUri() {
   return `${window.location.origin}${window.location.pathname}`;

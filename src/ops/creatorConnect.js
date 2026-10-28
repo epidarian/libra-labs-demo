@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CREATOR_STATE_KEY, creatorAuthorizeUrl, patreonLive } from "../patreon.js";
+import { CREATOR_STATE_KEY, creatorAuthorizeUrl, patreonIsLive } from "../patreon.js";
 import { ops } from "./api.js";
 
 const RETURN_KEY = "libra-creator-return";
@@ -43,7 +43,7 @@ function exchangeCreatorCode() {
 }
 
 export function beginCreatorConnect(tab) {
-  if (!patreonLive) return;
+  if (!patreonIsLive()) return;
   const state = crypto.randomUUID();
   sessionStorage.setItem(CREATOR_STATE_KEY, state);
   sessionStorage.setItem(RETURN_KEY, tab);

@@ -1,5 +1,5 @@
 import { Children, useState } from "react";
-import { patreonLive } from "../patreon.js";
+import { usePatreonLive } from "../patreon.js";
 import { ops, useOps } from "./api.js";
 import { beginCreatorConnect, useCreatorReturn } from "./creatorConnect.js";
 import { Notice } from "./Notice.jsx";
@@ -37,6 +37,7 @@ function Service({ name, service, note, children }) {
 export function DashboardTab() {
   const { data, error, reload, run } = useOps("health");
   const [busy, setBusy] = useState(false);
+  const patreonLive = usePatreonLive();
   useCreatorReturn(run);
 
   const act = async (request) => {
@@ -111,6 +112,7 @@ export function DashboardTab() {
           </Service>
           <Service name="Linear" service={data.linear} />
           <Service name="Email" service={data.email} />
+          <Service name="Google" service={data.google} />
         </div>
       ) : null}
     </section>

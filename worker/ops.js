@@ -217,7 +217,7 @@ export async function handleOps(request, env, url) {
   if (!user) return notFound();
 
   if (resource === "access" && !id && method === "GET") return json({ ok: true });
-  if (resource === "health" && !id && method === "GET") return json(await serviceHealth(env));
+  if (resource === "health" && !id && method === "GET") return json(await serviceHealth(env, request));
 
   if (resource === "users") {
     if (!id && method === "GET") return listUsers(env, user);

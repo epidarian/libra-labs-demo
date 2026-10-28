@@ -303,6 +303,7 @@ export function demoOps(path, { method = "GET", body } = {}) {
       patreon: { configured: false, connected: false, ok: false, detail: "Client id and secret are unset." },
       linear: { configured: false, ok: false, detail: "API key is unset." },
       email: { configured: false, ok: false, detail: "EMAIL binding is unset." },
+      google: { configured: false, ok: false, detail: "Client id and secret are unset." },
     };
   }
 

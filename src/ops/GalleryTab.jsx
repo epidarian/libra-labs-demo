@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { patreonLive } from "../patreon.js";
+import { usePatreonLive } from "../patreon.js";
 import { ops, opsUpload, useOps } from "./api.js";
 import { beginCreatorConnect, useCreatorReturn } from "./creatorConnect.js";
 import { Notice } from "./Notice.jsx";
@@ -369,6 +369,7 @@ function marks(work, tiers) {
 
 export function GalleryTab() {
   const { data, error, run } = useOps("gallery");
+  const patreonLive = usePatreonLive();
   useCreatorReturn(run);
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);

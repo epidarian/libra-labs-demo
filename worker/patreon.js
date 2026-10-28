@@ -14,6 +14,13 @@ const CREATOR_KEY = "patreon.creator";
 const PATRON_COOKIE = "libra_patron";
 const PATRON_SECONDS = 60 * 60 * 24 * 7;
 
+function patreonCredentials(env) {
+  return {
+    id: env.VITE_PATREON_CLIENT_ID || env.PATREON_CLIENT_ID || "",
+    secret: env.VITE_PATREON_CLIENT_SECRET || env.PATREON_CLIENT_SECRET || "",
+  };
+}
+
 function b64url(bytes) {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -48,7 +55,8 @@ function safeEqual(a, b) {
 }
 
 export async function patronCookie(request, env, status, amountCents = 0) {
-  if (!env.PATREON_CLIENT_SECRET || status !== "active_patron") {
+  const { secret } = patreonCredentials(env);
+  if (!secret || status !== "active_patron") {
     return cookie(request, "", 0, PATRON_COOKIE);
   }
   const exp = Math.floor(Date.now() / 1000) + PATRON_SECONDS;
@@ -57,18 +65,19 @@ export async function patronCookie(request, env, status, amountCents = 0) {
       JSON.stringify({ s: status, e: exp, c: Math.max(0, Number(amountCents) || 0) })
     )
   );
-  const sig = await hmac(env.PATREON_CLIENT_SECRET, payload);
+  const sig = await hmac(secret, payload);
   return cookie(request, `${payload}.${sig}`, PATRON_SECONDS, PATRON_COOKIE);
 }
 
 async function readPatron(request, env) {
-  if (!env.PATREON_CLIENT_SECRET) return null;
+  const { secret } = patreonCredentials(env);
+  if (!secret) return null;
   const token = readCookie(request, PATRON_COOKIE);
   const dot = token.lastIndexOf(".");
   if (dot <= 0) return null;
   const payload = token.slice(0, dot);
   const sig = token.slice(dot + 1);
-  if (!safeEqual(sig, await hmac(env.PATREON_CLIENT_SECRET, payload))) return null;
+  if (!safeEqual(sig, await hmac(secret, payload))) return null;
   try {
     const body = JSON.parse(new TextDecoder().decode(b64urlDecode(payload)));
     if (body.s !== "active_patron" || body.e <= Math.floor(Date.now() / 1000)) return null;
@@ -92,8 +101,8 @@ async function tokenRequest(env, params, signal) {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: env.PATREON_CLIENT_ID,
-      client_secret: env.PATREON_CLIENT_SECRET,
+      client_id: patreonCredentials(env).id,
+      client_secret: patreonCredentials(env).secret,
       ...params,
     }),
     signal,
@@ -103,11 +112,14 @@ async function tokenRequest(env, params, signal) {
 }
 
 export async function handlePatreon(request, env) {
+  if (request.method === "GET") {
+    return json({ clientId: patreonCredentials(env).id });
+  }
   if (request.method === "DELETE") {
     return json({ ok: true }, 200, { "Set-Cookie": await patronCookie(request, env, null) });
   }
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
-  if (!env.PATREON_CLIENT_ID || !env.PATREON_CLIENT_SECRET) {
+  if (!patreonCredentials(env).id || !patreonCredentials(env).secret) {
     return json({ error: "Patreon is not configured." }, 503);
   }
 
@@ -167,14 +179,14 @@ export async function campaignStatus(env) {
   const settings = await readSettings(env);
   const saved = settings[CREATOR_KEY];
   return {
-    configured: Boolean(env.PATREON_CLIENT_ID && env.PATREON_CLIENT_SECRET),
+    configured: Boolean(patreonCredentials(env).id && patreonCredentials(env).secret),
     connected: Boolean(saved?.refresh_token && saved?.campaign_id),
     campaign: saved?.campaign_name || "",
   };
 }
 
 export async function connectCampaign(env, requestUrl, body) {
-  if (!env.PATREON_CLIENT_ID || !env.PATREON_CLIENT_SECRET) {
+  if (!patreonCredentials(env).id || !patreonCredentials(env).secret) {
     return { error: "Patreon is not configured.", status: 503 };
   }
   let redirect;
