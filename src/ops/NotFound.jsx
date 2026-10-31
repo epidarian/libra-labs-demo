@@ -1,12 +1,21 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { loadDemoMode } from "../demoMode.js";
 import { acceptDemoCode, workerAnswered } from "./demoAccess.js";
 
 export function NotFound({ onUnlock }) {
   const [value, setValue] = useState("");
 
+  useEffect(() => {
+    const previous = document.title;
+    document.title = "404 Not Found";
+    return () => {
+      document.title = previous;
+    };
+  }, []);
+
   const submit = async (event) => {
     event.preventDefault();
+    if (!onUnlock) return;
     const code = value;
     await loadDemoMode();
     const res = await fetch("/api/ops/access", {
@@ -20,7 +29,7 @@ export function NotFound({ onUnlock }) {
 
   return (
     <div className="notfound">
-      <h1>Not Found</h1>
+      <h1>404 Not Found</h1>
       <p>The requested URL was not found on this server.</p>
       <form onSubmit={submit}>
         <input

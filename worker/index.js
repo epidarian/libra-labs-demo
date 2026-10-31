@@ -6,9 +6,26 @@ import { handleLegal } from "./legal.js";
 import { handleOps } from "./ops.js";
 import { handlePatreon } from "./patreon.js";
 
+async function opsDocument(request, env, url) {
+  const page = new URL(url);
+  page.pathname = "/ops";
+  const asset = await env.ASSETS.fetch(new Request(page, request));
+  return new Response(asset.body, {
+    status: 404,
+    statusText: "Not Found",
+    headers: asset.headers,
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      (url.pathname === "/ops" || url.pathname === "/ops/")
+    ) {
+      return opsDocument(request, env, url);
+    }
     try {
       if (!demoAllowed(env)) await clearDemoData(env);
       if (url.pathname.startsWith("/api/auth/")) return await handleAuth(request, env, url);

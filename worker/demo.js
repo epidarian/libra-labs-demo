@@ -9,6 +9,8 @@ const DEMO_WORK_IDS = [
 
 const DEMO_COMMISSION_IDS = ["demo-0001", "demo-0002", "demo-0003", "demo-0004"];
 
+const CLEARED_KEY = "demo.cleared";
+
 let cleared = false;
 
 export function demoAllowed(env) {
@@ -19,6 +21,11 @@ export function demoAllowed(env) {
 
 export async function clearDemoData(env) {
   if (demoAllowed(env) || cleared) return;
+  const done = await env.DB.prepare("SELECT 1 AS ok FROM settings WHERE key = ?").bind(CLEARED_KEY).first();
+  if (done) {
+    cleared = true;
+    return;
+  }
   const workMarks = DEMO_WORK_IDS.map(() => "?").join(", ");
   const commissionMarks = DEMO_COMMISSION_IDS.map(() => "?").join(", ");
   const files = await env.DB.prepare(
@@ -44,6 +51,9 @@ export async function clearDemoData(env) {
       ...DEMO_COMMISSION_IDS
     ),
     env.DB.prepare(`DELETE FROM commissions WHERE id IN (${commissionMarks})`).bind(...DEMO_COMMISSION_IDS),
+    env.DB.prepare(
+      `INSERT INTO settings (key, value) VALUES (?, '1') ON CONFLICT (key) DO NOTHING`
+    ).bind(CLEARED_KEY),
   ]);
   cleared = true;
 }

@@ -5,8 +5,9 @@ import { PatreonProvider } from "./context/Patreon.jsx";
 import { SiteContentProvider } from "./context/SiteContent.jsx";
 import { SiteModeProvider, useSiteMode } from "./context/SiteMode.jsx";
 import { NsfwView } from "./nsfw/NsfwView.jsx";
+import { NotFound } from "./ops/NotFound.jsx";
 import { OpsPanel } from "./ops/OpsPanel.jsx";
-import { onOps } from "./ops/route.js";
+import { onOps, onSite } from "./ops/route.js";
 import { SfwView } from "./sfw/SfwView.jsx";
 
 function Shell() {
@@ -24,6 +25,8 @@ function Shell() {
 }
 
 export default function App() {
+  if (!onSite) return <NotFound />;
+
   return (
     <SiteModeProvider>
       <PatreonProvider>

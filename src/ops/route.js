@@ -12,7 +12,11 @@ export function appPathname() {
   return path;
 }
 
-export const onOps = appPathname() === OPS_PATH;
+const path = appPathname();
+
+export const onOps = path === OPS_PATH;
+
+export const onSite = path === "/" || onOps;
 
 export function siteHref(path) {
   const normalized = path.startsWith("/") ? path : `/${path}`;
