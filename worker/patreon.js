@@ -349,7 +349,7 @@ export async function patreonHealth(env) {
     if (result.error) {
       const detail =
         result.error === "Connect the Patreon campaign first."
-          ? "The campaign token was refused. Reconnect."
+          ? "Disconnect and then reconnect to page admin account"
           : result.error;
       console.error(JSON.stringify({ message: "patreon health failed", error: detail }));
       return { ...status, ok: false, detail };
