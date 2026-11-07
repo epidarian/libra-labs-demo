@@ -33,7 +33,7 @@ function emptyHq() {
 function settingsOf(raw) {
   const hq = { ...emptyHq(), ...(raw?.hq || {}) };
   return {
-    extraCopies: Math.max(0, Number(raw?.extraCopies) || 0),
+    extraCopies: raw?.extraCopies == null || raw.extraCopies === "" ? null : Math.max(0, Number(raw.extraCopies) || 0),
     passHash: raw?.passHash || "",
     hq,
   };
@@ -76,7 +76,7 @@ async function loadBundle(env) {
        ORDER BY reward_items.drop_on, print_goods.name`
     ).all(),
     env.DB.prepare("SELECT id, item_id, filename, content_type FROM reward_assets ORDER BY sort, filename").all(),
-    env.DB.prepare("SELECT item_id, tier_id FROM reward_tiers").all(),
+    env.DB.prepare("SELECT item_id, amount_cents FROM reward_tiers WHERE amount_cents IS NOT NULL").all(),
     env.DB.prepare("SELECT month, locked_at FROM fulfillment_months").all(),
     env.DB.prepare(
       "SELECT patreon_id, name, email, amount_cents, patron_status, recipient, line1, line2, city, region, postal_code, country, phone FROM patrons ORDER BY name"
@@ -92,7 +92,7 @@ async function loadBundle(env) {
   const tiersByItem = new Map();
   for (const link of links.results) {
     const list = tiersByItem.get(link.item_id) || [];
-    list.push(link.tier_id);
+    list.push(link.amount_cents);
     tiersByItem.set(link.item_id, list);
   }
   const assetsByItem = new Map();
@@ -109,7 +109,7 @@ async function loadBundle(env) {
     items: items.results.map((item) => ({
       ...item,
       month: monthOf(item.drop_on),
-      tier_ids: tiersByItem.get(item.id) || [],
+      amounts: tiersByItem.get(item.id) || [],
       assets: assetsByItem.get(item.id) || [],
     })),
     months: months.results,
@@ -128,7 +128,7 @@ function goodFields(body) {
   if (!name) return { error: "Enter a name." };
   if (!KINDS.includes(kind)) return { error: "Choose a type." };
   if (kind === "other" && !kindNote) return { error: "Label this other good." };
-  if (!Number.isInteger(price) || price < 0) return { error: "Enter a price in cents." };
+  if (!Number.isInteger(price) || price < 0) return { error: "Enter a price." };
   return { name, kind, kind_note: kind === "other" ? kindNote : "", price_cents: price, in_stock: body?.in_stock ? 1 : 0 };
 }
 
@@ -204,24 +204,35 @@ async function createItem(env, body) {
     .bind(body?.print_good_id)
     .first();
   if (!good) return json({ error: "Choose a print good." }, 400);
-  const tierIds = Array.isArray(body?.tier_ids) ? [...new Set(body.tier_ids.map((id) => text(id, 80)).filter(Boolean))] : [];
-  if (!tierIds.length) return json({ error: "Choose at least one tier." }, 400);
+  const amounts = amountList(body?.amounts);
+  if (!amounts.length) return json({ error: "Choose a pledge amount." }, 400);
   const count = optionalCount(body?.count);
   const extra = optionalCount(body?.extra_copies);
   if (count === undefined || extra === undefined) return json({ error: "Enter whole-number quantities." }, 400);
   const price = body?.price_cents == null || body.price_cents === "" ? good.price_cents : Number(body.price_cents);
-  if (!Number.isInteger(price) || price < 0) return json({ error: "Enter a price in cents." }, 400);
+  if (!Number.isInteger(price) || price < 0) return json({ error: "Enter a price." }, 400);
   const id = crypto.randomUUID();
   await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO reward_items (id, print_good_id, drop_on, price_cents, count, extra_copies)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(id, good.id, drop, price, count, extra),
-    ...tierIds.map((tierId) =>
-      env.DB.prepare("INSERT INTO reward_tiers (item_id, tier_id) VALUES (?, ?)").bind(id, tierId)
+      `INSERT INTO reward_items (id, print_good_id, drop_on, price_cents, count, extra_copies, inclusive)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, good.id, drop, price, count, extra, body?.inclusive ? 1 : 0),
+    ...amounts.map((amount) =>
+      env.DB.prepare("INSERT INTO reward_tiers (item_id, tier_id, amount_cents) VALUES (?, ?, ?)").bind(
+        id,
+        String(amount),
+        amount
+      )
     ),
   ]);
   return json({ ok: true, id }, 201);
+}
+
+function amountList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((amount) => Number(amount)).filter((amount) => Number.isInteger(amount) && amount > 0))].sort(
+    (a, b) => a - b
+  );
 }
 
 async function updateItem(env, id, body) {
@@ -235,19 +246,22 @@ async function updateItem(env, id, body) {
     return json({ error: "Enter a price and whole-number quantities." }, 400);
   }
   const statements = [
-    env.DB.prepare("UPDATE reward_items SET price_cents = ?, count = ?, extra_copies = ? WHERE id = ?").bind(
-      price,
-      count,
-      extra,
-      id
-    ),
+    env.DB.prepare(
+      "UPDATE reward_items SET price_cents = ?, count = ?, extra_copies = ?, inclusive = ? WHERE id = ?"
+    ).bind(price, count, extra, body?.inclusive ? 1 : 0, id),
   ];
-  if (Array.isArray(body?.tier_ids)) {
-    const tierIds = [...new Set(body.tier_ids.map((tierId) => text(tierId, 80)).filter(Boolean))];
-    if (!tierIds.length) return json({ error: "Choose at least one tier." }, 400);
+  if (Array.isArray(body?.amounts)) {
+    const amounts = amountList(body.amounts);
+    if (!amounts.length) return json({ error: "Choose a pledge amount." }, 400);
     statements.push(env.DB.prepare("DELETE FROM reward_tiers WHERE item_id = ?").bind(id));
-    for (const tierId of tierIds) {
-      statements.push(env.DB.prepare("INSERT INTO reward_tiers (item_id, tier_id) VALUES (?, ?)").bind(id, tierId));
+    for (const amount of amounts) {
+      statements.push(
+        env.DB.prepare("INSERT INTO reward_tiers (item_id, tier_id, amount_cents) VALUES (?, ?, ?)").bind(
+          id,
+          String(amount),
+          amount
+        )
+      );
     }
   }
   await env.DB.batch(statements);
@@ -378,18 +392,32 @@ async function markPaid(env, id) {
   return json({ ok: true });
 }
 
-function entitled(patron, tierAmounts) {
-  return patron.patron_status === "active_patron" && tierAmounts.some((amount) => patron.amount_cents >= amount);
+function resolvedExtras(itemExtra, settingsExtra) {
+  if (itemExtra != null) return itemExtra;
+  return settingsExtra == null ? 0 : settingsExtra;
+}
+
+function copiesForPatrons(count, headcount) {
+  return headcount * (count == null ? 1 : count);
+}
+
+function entitled(patron, item, tiers) {
+  const amounts = item.amounts || [];
+  if (patron.patron_status !== "active_patron" || !amounts.length) return false;
+  if (item.inclusive) return amounts.some((amount) => patron.amount_cents >= amount);
+  let band = null;
+  for (const tier of tiers) {
+    if (patron.amount_cents >= tier.amount_cents && (band == null || tier.amount_cents > band)) band = tier.amount_cents;
+  }
+  return band != null && amounts.includes(band);
 }
 
 async function monthModel(env, month) {
   if (!MONTH.test(month)) return { error: "Choose a month.", status: 400 };
   const bundle = await loadBundle(env);
   const items = bundle.items.filter((item) => item.month === month);
-  const tierAmount = new Map(bundle.tiers.map((tier) => [tier.id, tier.amount_cents]));
   const locked = bundle.months.find((row) => row.month === month)?.locked_at || null;
-  const amountsFor = (item) => item.tier_ids.map((id) => tierAmount.get(id)).filter((n) => n != null);
-  return { bundle, items, locked, amountsFor };
+  return { bundle, items, locked };
 }
 
 async function orderRows(env, month) {
@@ -417,14 +445,13 @@ async function orderRows(env, month) {
   const stored = settingsOf((await readSettings(env))[KEY]);
   return {
     rows: model.items.map((item) => {
-      const amounts = model.amountsFor(item);
-      const live = model.bundle.patrons.filter((patron) => entitled(patron, amounts)).length;
+      const live = model.bundle.patrons.filter((patron) => entitled(patron, item, model.bundle.tiers)).length;
       return {
         name: item.good_name,
         kind: item.kind,
         kind_note: item.kind_note,
-        patron_qty: item.count == null ? live : item.count,
-        extra_qty: item.extra_copies == null ? stored.extraCopies : item.extra_copies,
+        patron_qty: copiesForPatrons(item.count, live),
+        extra_qty: resolvedExtras(item.extra_copies, stored.extraCopies),
         price_cents: item.price_cents,
       };
     }),
@@ -464,11 +491,10 @@ async function fulfillmentRows(env, month) {
   let extras = 0;
   const seen = new Set();
   for (const item of model.items) {
-    const amounts = model.amountsFor(item);
-    const extra = item.extra_copies == null ? stored.extraCopies : item.extra_copies;
+    const extra = resolvedExtras(item.extra_copies, stored.extraCopies);
     extras += extra;
     for (const patron of model.bundle.patrons) {
-      if (!entitled(patron, amounts) || seen.has(patron.patreon_id)) continue;
+      if (!entitled(patron, item, model.bundle.tiers) || seen.has(patron.patreon_id)) continue;
       seen.add(patron.patreon_id);
       rows.push({
         id: "",
@@ -548,8 +574,8 @@ async function sheetResponse(env, url, kind) {
   if (format === "json") return json({ month, kind, rows: built.rows });
   if (kind === "order" && format === "csv") {
     const body = csv(
-      ["name", "kind", "kind_note", "patron_qty", "extra_qty", "price_cents"],
-      built.rows
+      ["name", "kind", "kind_note", "patron_qty", "extra_qty", "price"],
+      built.rows.map((row) => ({ ...row, price: ((Number(row.price_cents) || 0) / 100).toFixed(2) }))
     );
     return fileResponse(body, `goods-order-${month}.csv`, "text/csv; charset=utf-8");
   }
@@ -605,7 +631,7 @@ export async function lockMonth(env, month) {
   const model = await monthModel(env, month);
   if (!model.items.length) return json({ error: "Add a good to this month first." }, 409);
   for (const item of model.items) {
-    if (!item.tier_ids.length) return json({ error: `${item.good_name} has no tier.` }, 409);
+    if (!item.amounts.length) return json({ error: `${item.good_name} has no pledge amount.` }, 409);
     if (!item.in_stock) return json({ error: `${item.good_name} is out of stock.` }, 409);
   }
   const stored = settingsOf((await readSettings(env))[KEY]);
@@ -617,10 +643,9 @@ export async function lockMonth(env, month) {
   let extras = 0;
   const patrons = new Map();
   for (const item of model.items) {
-    const amounts = model.amountsFor(item);
-    const live = model.bundle.patrons.filter((patron) => entitled(patron, amounts));
-    const patronQty = item.count == null ? live.length : item.count;
-    const extraQty = item.extra_copies == null ? stored.extraCopies : item.extra_copies;
+    const live = model.bundle.patrons.filter((patron) => entitled(patron, item, model.bundle.tiers));
+    const patronQty = copiesForPatrons(item.count, live.length);
+    const extraQty = resolvedExtras(item.extra_copies, stored.extraCopies);
     extras += extraQty;
     statements.push(
       env.DB.prepare(
@@ -701,7 +726,7 @@ export async function uploadInvoice(env, request, url) {
   const month = url.searchParams.get("month") || "";
   if (!MONTH.test(month)) return json({ error: "Choose a month." }, 400);
   const amount = Number(url.searchParams.get("amount_cents"));
-  if (!Number.isInteger(amount) || amount < 0) return json({ error: "Enter an amount in cents." }, 400);
+  if (!Number.isInteger(amount) || amount < 0) return json({ error: "Enter an amount." }, 400);
   const bytes = await request.arrayBuffer();
   if (!bytes.byteLength || bytes.byteLength > 20 * 1024 * 1024) {
     return json({ error: "Choose a file under 20 MB." }, 400);

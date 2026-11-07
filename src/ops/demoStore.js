@@ -425,7 +425,7 @@ export function demoOps(path, { method = "GET", body } = {}) {
     return {
       today: "2026-11-06",
       settings: {
-        extraCopies: 0,
+        extraCopies: null,
         hasPass: false,
         hq: { recipient: "", line1: "", line2: "", city: "", region: "", postalCode: "", country: "US", phone: "" },
       },

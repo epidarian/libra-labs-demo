@@ -2,6 +2,19 @@ export function money(cents) {
   return `$${((Number(cents) || 0) / 100).toFixed(2)}`;
 }
 
+export function dollarInput(cents) {
+  if (cents === "" || cents == null) return "";
+  return (Number(cents) / 100).toFixed(2);
+}
+
+export function centsFromDollars(value) {
+  const text = String(value ?? "").trim().replace(/^\$/, "");
+  if (!text) return null;
+  if (!/^\d+(\.\d{0,2})?$/.test(text)) return undefined;
+  const [whole, frac = ""] = text.split(".");
+  return Number(whole) * 100 + Number((frac + "00").slice(0, 2));
+}
+
 export function openSheet(month, kind) {
   const url = new URL(window.location.href);
   url.searchParams.set("sheet", kind);

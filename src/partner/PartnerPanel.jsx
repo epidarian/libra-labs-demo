@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Logo } from "../components/Logo.jsx";
 import { TopTools } from "../components/TopTools.jsx";
 import { Viewport } from "../components/Viewport.jsx";
-import { money } from "../fulfillment/sheets.js";
+import { centsFromDollars, dollarInput, money } from "../fulfillment/sheets.js";
 import { SheetActions, SheetView, sheetQuery } from "../fulfillment/SheetView.jsx";
 import { siteHref } from "../ops/route.js";
 import { Notice } from "../ops/Notice.jsx";
@@ -138,7 +138,7 @@ function Desk() {
     Boolean(selected) &&
     data.today >= `${selected}-01` &&
     lines.length > 0 &&
-    lines.every((line) => line.tier_ids.length && line.in_stock);
+    lines.every((line) => line.amounts?.length && line.in_stock);
   const shipments = data.shipments.filter((row) => row.month === selected);
 
   return (
@@ -180,6 +180,7 @@ function Desk() {
           {locked ? (
             <section className="ops__section">
               <h2>Shipments</h2>
+              <div className="ops__scroll">
               <table className="ops__table">
                 <thead>
                   <tr>
@@ -195,6 +196,7 @@ function Desk() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </section>
           ) : null}
         </>
@@ -216,6 +218,7 @@ function Desk() {
           onDone={load}
           onError={setError}
         />
+        <div className="ops__scroll">
         <table className="ops__table">
           <thead>
             <tr>
@@ -240,6 +243,7 @@ function Desk() {
             ))}
           </tbody>
         </table>
+        </div>
       </section>
     </div>
   );
@@ -276,7 +280,7 @@ function ShipmentRow({ row, onSave }) {
 function GoodEdit({ good, onSave }) {
   const [form, setForm] = useState({
     name: good.name,
-    price_cents: good.price_cents,
+    price: dollarInput(good.price_cents),
     kind: good.kind,
     kind_note: good.kind_note,
     in_stock: Boolean(good.in_stock),
@@ -290,7 +294,15 @@ function GoodEdit({ good, onSave }) {
       className="ops__form"
       onSubmit={(event) => {
         event.preventDefault();
-        onSave({ ...form, price_cents: Number(form.price_cents), in_stock: Boolean(form.in_stock) });
+        const price_cents = centsFromDollars(form.price);
+        if (price_cents == null) return;
+        onSave({
+          name: form.name,
+          kind: form.kind,
+          kind_note: form.kind_note,
+          price_cents,
+          in_stock: Boolean(form.in_stock),
+        });
       }}
     >
       <div className="field-row">
@@ -299,8 +311,8 @@ function GoodEdit({ good, onSave }) {
           <input value={form.name} onChange={set("name")} />
         </label>
         <label className="field">
-          Price (cents)
-          <input type="number" min="0" value={form.price_cents} onChange={set("price_cents")} />
+          Price
+          <input type="number" min="0" step="0.01" inputMode="decimal" value={form.price} onChange={set("price")} />
         </label>
         <label className="field">
           Type
@@ -318,9 +330,9 @@ function GoodEdit({ good, onSave }) {
             <input value={form.kind_note} onChange={set("kind_note")} />
           </label>
         ) : null}
-        <label className="field">
+        <label className="ops__check fulfill-stock">
+          <input type="checkbox" checked={Boolean(form.in_stock)} onChange={set("in_stock")} />
           In stock
-          <input type="checkbox" checked={form.in_stock} onChange={set("in_stock")} />
         </label>
       </div>
       <button type="submit" className="ops__btn">
@@ -339,10 +351,11 @@ function InvoiceForm({ month, onDone, onError }) {
       className="ops__form"
       onSubmit={(event) => {
         event.preventDefault();
-        if (!month || !file) return;
+        const amount_cents = centsFromDollars(amount);
+        if (!month || !file || amount_cents == null) return;
         const params = new URLSearchParams({
           month,
-          amount_cents: String(Number(amount)),
+          amount_cents: String(amount_cents),
           note,
           name: file.name,
         });
@@ -364,8 +377,8 @@ function InvoiceForm({ month, onDone, onError }) {
     >
       <div className="field-row">
         <label className="field">
-          Amount (cents)
-          <input type="number" min="0" value={amount} onChange={(event) => setAmount(event.target.value)} required />
+          Amount
+          <input type="number" min="0" step="0.01" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
         </label>
         <label className="field">
           Note

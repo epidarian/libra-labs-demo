@@ -2,8 +2,15 @@ import { useEffect, useState } from "react";
 import { onPartner } from "../ops/route.js";
 import { downloadSheet, money, openSheet } from "./sheets.js";
 
+const SHEETS = [
+  ["order", "Order sheet"],
+  ["fulfillment", "Shipping sheet"],
+];
+
 export function SheetActions({ base, month, onError }) {
+  const [open, setOpen] = useState(false);
   const run = (kind, format) => {
+    setOpen(false);
     if (format === "html") {
       openSheet(month, kind);
       return;
@@ -11,18 +18,23 @@ export function SheetActions({ base, month, onError }) {
     downloadSheet(base, month, kind, format).catch((err) => onError?.(err.message));
   };
   return (
-    <div className="ops__actions">
-      {["order", "fulfillment"].map((kind) => (
-        <span key={kind} className="sheet-actions">
-          <span className="ops__muted">{kind === "order" ? "Goods order" : "Fulfillment"}</span>
-          {["html", "csv", "pdf"].map((format) => (
-            <button key={format} type="button" className="ops__btn" onClick={() => run(kind, format)}>
-              {format.toUpperCase()}
-            </button>
-          ))}
-        </span>
-      ))}
-    </div>
+    <details className="sheet-menu" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className="ops__btn sheet-menu__toggle">Sheets</summary>
+      <div className="sheet-menu__panel">
+        {SHEETS.map(([kind, title]) => (
+          <div key={kind} className="sheet-menu__row">
+            <strong>{title}</strong>
+            <div className="ops__actions">
+              {["html", "csv", "pdf"].map((format) => (
+                <button key={format} type="button" className="ops__btn" onClick={() => run(kind, format)}>
+                  {format === "html" ? "View" : format.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -55,14 +67,17 @@ export function SheetView({ kind, month }) {
   }, [rows]);
 
   const title = kind === "order" ? "Goods to order" : "Fulfillment";
+  const [year, m] = String(month).split("-");
+  const when = year && m
+    ? new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" })
+    : month;
 
   return (
     <main className="sheet">
-      <header>
-        <p>Libra Labs LLC</p>
-        <h1>
-          {title} · {month}
-        </h1>
+      <header className="sheet__head">
+        <p className="sheet__who">Libra Labs LLC</p>
+        <h1>{title}</h1>
+        <p className="sheet__when">{when}</p>
       </header>
       {error ? <p>{error}</p> : null}
       {kind === "order" ? (

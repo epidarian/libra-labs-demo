@@ -1,0 +1,1 @@
+ALTER TABLE tiers ADD COLUMN include_previous INTEGER NOT NULL DEFAULT 0;
