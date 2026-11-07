@@ -847,6 +847,7 @@ export async function handlePartner(request, env, url) {
   if (a === "invoices" && method === "PUT") return uploadInvoice(env, request, url);
   if (a === "months" && b && c === "lock" && method === "POST") return lockMonth(env, b);
   if (a === "shipments" && b && method === "PATCH") return patchShipment(env, b, body);
+  if (a === "goods" && !b && method === "POST") return createGood(env, body);
   if (a === "goods" && b && method === "PATCH") return updateGood(env, b, body, true);
   return notFound();
 }

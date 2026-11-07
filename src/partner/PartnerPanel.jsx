@@ -102,6 +102,7 @@ function Desk() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [month, setMonth] = useState("");
+  const [adding, setAdding] = useState(false);
 
   const load = () =>
     partner("")
@@ -126,8 +127,10 @@ function Desk() {
     try {
       await request();
       await load();
+      return true;
     } catch (err) {
       setError(err.message);
+      return false;
     }
   };
 
@@ -206,6 +209,19 @@ function Desk() {
 
       <section className="ops__section">
         <h2>Catalog</h2>
+        {adding ? (
+          <GoodEdit
+            onCancel={() => setAdding(false)}
+            onSave={async (body) => {
+              const ok = await run(() => partner("goods", { method: "POST", body }));
+              if (ok) setAdding(false);
+            }}
+          />
+        ) : (
+          <button type="button" className="ops__btn" onClick={() => setAdding(true)}>
+            Add
+          </button>
+        )}
         {data.goods.map((good) => (
           <GoodEdit key={good.id} good={good} onSave={(body) => run(() => partner(`goods/${good.id}`, { method: "PATCH", body }))} />
         ))}
@@ -277,13 +293,13 @@ function ShipmentRow({ row, onSave }) {
   );
 }
 
-function GoodEdit({ good, onSave }) {
+function GoodEdit({ good, onSave, onCancel }) {
   const [form, setForm] = useState({
-    name: good.name,
-    price: dollarInput(good.price_cents),
-    kind: good.kind,
-    kind_note: good.kind_note,
-    in_stock: Boolean(good.in_stock),
+    name: good?.name || "",
+    price: dollarInput(good?.price_cents ?? ""),
+    kind: good?.kind || "print",
+    kind_note: good?.kind_note || "",
+    in_stock: good ? Boolean(good.in_stock) : true,
   });
   const set = (key) => (event) => {
     const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
@@ -335,9 +351,16 @@ function GoodEdit({ good, onSave }) {
           In stock
         </label>
       </div>
-      <button type="submit" className="ops__btn">
-        Save {good.name}
-      </button>
+      <div className="ops__actions">
+        <button type="submit" className="ops__btn">
+          {good ? `Save ${good.name}` : "Save"}
+        </button>
+        {onCancel ? (
+          <button type="button" className="ops__btn" onClick={onCancel}>
+            Cancel
+          </button>
+        ) : null}
+      </div>
     </form>
   );
 }
