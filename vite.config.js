@@ -15,6 +15,7 @@ export default defineConfig({
           input: {
             main: resolve(root, "index.html"),
             ops: resolve(root, "ops.html"),
+            partner: resolve(root, "partner.html"),
           },
         },
       },

@@ -3,6 +3,8 @@ import {
   authorizeUrl,
   CREATOR_STATE_KEY,
   demoProfile,
+  BIND_KEY,
+  OPEN_ADDRESS_KEY,
   exchangeCode,
   patreonIsLive,
   usePatreonLive,
@@ -112,8 +114,10 @@ export function PatreonProvider({ children }) {
       if (sessionStorage.getItem(CREATOR_STATE_KEY) === params.get("state")) return;
       const expected = sessionStorage.getItem(STATE_KEY);
       const back = safeReturn(sessionStorage.getItem(RETURN_KEY));
+      const bind = sessionStorage.getItem(BIND_KEY) === "1";
       sessionStorage.removeItem(STATE_KEY);
       sessionStorage.removeItem(RETURN_KEY);
+      sessionStorage.removeItem(BIND_KEY);
       window.history.replaceState(null, "", window.location.pathname);
       const resume = (message) => {
         const here = `${window.location.pathname}${window.location.search}`;
@@ -135,8 +139,15 @@ export function PatreonProvider({ children }) {
         return;
       }
       setStatus("connecting");
-      exchangeCode(code)
+      exchangeCode(code, bind)
         .then((next) => {
+          if (bind && next.patronStatus === "active_patron") {
+            try {
+              sessionStorage.setItem(OPEN_ADDRESS_KEY, "1");
+            } catch {
+              /* private mode */
+            }
+          }
           setProfile(next);
           saveProfile(next);
           setStatus("idle");
@@ -200,13 +211,15 @@ export function PatreonProvider({ children }) {
       live,
       emailLive,
       isPatron: profile?.patronStatus === "active_patron",
-      connect: () => {
+      connect: ({ bind } = {}) => {
         setError(null);
         loadDemoMode().then((demo) => {
           if (!demo && patreonIsLive()) {
             const state = crypto.randomUUID();
             sessionStorage.setItem(STATE_KEY, state);
             sessionStorage.setItem(RETURN_KEY, `${window.location.pathname}${window.location.search}`);
+            if (bind) sessionStorage.setItem(BIND_KEY, "1");
+            else sessionStorage.removeItem(BIND_KEY);
             window.location.assign(authorizeUrl(state));
             return;
           }

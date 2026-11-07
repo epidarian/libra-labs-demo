@@ -1,4 +1,5 @@
 import { isAdmin, json, readBody, userForRequest } from "./auth.js";
+import { fulfillmentUpload, handleFulfillmentOps } from "./fulfillment.js";
 import { handleCommissionOps } from "./commissions.js";
 import { RATINGS, sameOrigin, text, writeSetting } from "./content.js";
 import { handleGalleryRoutes, handleGalleryUpload, normalizeTag } from "./gallery.js";
@@ -197,10 +198,12 @@ export async function handleOps(request, env, url) {
   const method = request.method;
   const [resource, id, action, extra] = url.pathname.replace(/^\/api\/ops\//, "").split("/");
   const upload = resource === "gallery" && id && action === "files" && !extra && method === "PUT";
-  if (upload) {
+  const printUpload = resource === "fulfillment" && fulfillmentUpload(url) && method === "PUT";
+  if (upload || printUpload) {
     if (!sameOrigin(request, url)) return notFound();
     const uploader = await actorFor(env, request);
     if (!uploader) return notFound();
+    if (printUpload) return handleFulfillmentOps(request, env, url, method, null);
     return handleGalleryUpload(request, env, id, url);
   }
 
@@ -241,6 +244,8 @@ export async function handleOps(request, env, url) {
   }
 
   if (resource === "about" && id && method === "PUT") return saveAbout(env, id, body);
+
+  if (resource === "fulfillment") return handleFulfillmentOps(request, env, url, method, body);
 
   if (resource === "gallery") {
     const response = await handleGalleryRoutes(env, request, url, method, id, action, extra, body);

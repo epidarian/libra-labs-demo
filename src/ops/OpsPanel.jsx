@@ -8,7 +8,9 @@ import { CommissionsTab } from "./CommissionsTab.jsx";
 import { ConventionsTab } from "./ConventionsTab.jsx";
 import { creatorReturnTab } from "./creatorConnect.js";
 import { DashboardTab } from "./DashboardTab.jsx";
+import { FulfillmentTab } from "./FulfillmentTab.jsx";
 import { GalleryTab } from "./GalleryTab.jsx";
+import { sheetQuery, SheetView } from "../fulfillment/SheetView.jsx";
 import { pendingGoogleReturn } from "../googleAuth.js";
 import { loadDemoMode } from "../demoMode.js";
 import { demoOpsOpen, workerAnswered } from "./demoAccess.js";
@@ -23,6 +25,7 @@ const TABS = [
   { id: "conventions", label: "Conventions", Panel: ConventionsTab },
   { id: "about", label: "About page", Panel: AboutEditor },
   { id: "users", label: "Users", Panel: UsersTab },
+  { id: "fulfillment", label: "Fulfillment", Panel: FulfillmentTab },
 ];
 
 function useAccess() {
@@ -51,8 +54,11 @@ export function OpsPanel() {
     return TABS.some((item) => item.id === back) ? back : "gallery";
   });
 
+  const printing = sheetQuery();
+
   if (googleReturn || access === null) return null;
   if (!access) return <NotFound onUnlock={recheck} />;
+  if (printing) return <SheetView kind={printing.kind} month={printing.month} />;
 
   const { label, Panel } = TABS.find((item) => item.id === tab);
 

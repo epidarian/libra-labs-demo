@@ -3204,6 +3204,104 @@ a.brand {
   .switch--queue { width: 292px; }
 }
 
+.drawer__link--button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.drawer__link.is-disabled,
+.drawer__link--button.is-disabled {
+  opacity: 0.45;
+}
+
+.tool--attention {
+  position: relative;
+  animation: mail-nudge 1.1s ease-in-out infinite;
+}
+
+.tool--attention::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--l6, #ff424d);
+}
+
+@keyframes mail-nudge {
+  0%, 100% { transform: rotate(0deg); }
+  30% { transform: rotate(-10deg); }
+  70% { transform: rotate(10deg); }
+}
+
+.mail-dialog--bind {
+  display: flex;
+  flex-direction: column;
+  height: min(720px, 92vh);
+  padding: 0;
+  overflow: hidden;
+}
+
+.mail-dialog__ad {
+  flex: 3 1 0;
+  width: 100%;
+  min-height: 0;
+  object-fit: cover;
+  background: #111;
+}
+
+.mail-dialog__body {
+  flex: 1 1 0;
+  padding: 22px 26px 20px;
+  overflow: auto;
+}
+
+.mail-dialog--bind .mail-dialog__body {
+  padding-top: 16px;
+}
+
+.ops__stack {
+  display: grid;
+  gap: 28px;
+}
+
+.sheet-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sheet {
+  max-width: 900px;
+  margin: 24px auto;
+  padding: 24px;
+  color: #111;
+  background: #fff;
+  font-family: "Sora", sans-serif;
+}
+
+.sheet table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.sheet th,
+.sheet td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #ccc;
+  text-align: left;
+  vertical-align: top;
+}
+
+@media print {
+  .sheet { margin: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,6 +1,7 @@
-import { cookie, json, openSession, readCookie, savePatronUser } from "./auth.js";
+import { cookie, json, openSession, profile, readCookie, savePatronUser, userForRequest } from "./auth.js";
 import { readSettings, writeSetting } from "./content.js";
 import { demoAllowed } from "./demo.js";
+import { claimPatreon } from "./patrons.js";
 
 const IDENTITY_URL =
   "https://www.patreon.com/api/oauth2/v2/identity" +
@@ -139,8 +140,12 @@ export async function handlePatreon(request, env) {
 
   let code;
   let redirectUri;
+  let bind = false;
   try {
-    ({ code, redirect_uri: redirectUri } = await request.json());
+    const body = await request.json();
+    code = body.code;
+    redirectUri = body.redirect_uri;
+    bind = body.bind === true;
   } catch {
     return json({ error: "Bad request" }, 400);
   }
@@ -173,17 +178,80 @@ export async function handlePatreon(request, env) {
   const member = (identity.included || []).find((item) => item.type === "member");
   const patronStatus = member?.attributes.patron_status ?? null;
   const amountCents = member?.attributes.currently_entitled_amount_cents ?? 0;
-  const saved = await savePatronUser(env, {
+  const patreonId = identity.data?.id;
+  const identityFields = {
     email: attributes.email,
     name: attributes.full_name,
     image: attributes.image_url,
-  });
+    amountCents,
+    patronStatus,
+  };
+  const patronCookieHeader = await patronCookie(request, env, patronStatus, amountCents);
+
+  if (bind) {
+    const current = await userForRequest(env, request);
+    if (!current) return json({ error: "Sign in before linking Patreon." }, 401);
+    const claimed = await claimPatreon(env, current.id, patreonId, identityFields);
+    if (claimed.error) return json({ error: claimed.error }, claimed.status);
+    console.log(JSON.stringify({ message: "patreon linked", user: current.id }));
+    return json(
+      { ...profile(env, { ...current, patreon_id: claimed.patreonId }), patronStatus, amountCents },
+      200,
+      { "Set-Cookie": patronCookieHeader }
+    );
+  }
+
+  const saved = await savePatronUser(env, identityFields);
   if (saved.error) return json({ error: saved.error }, saved.status);
+  const claimed = await claimPatreon(env, saved.user.id, patreonId, identityFields);
+  if (claimed.error) return json({ error: claimed.error }, claimed.status);
   console.log(JSON.stringify({ message: "signed in with patreon" }));
-  return openSession(env, request, saved.user, {
-    cookie: await patronCookie(request, env, patronStatus, amountCents),
-    fields: { patronStatus, amountCents },
+  return openSession(env, request, { ...saved.user, patreon_id: claimed.patreonId }, {
+    cookie: patronCookieHeader,
+    fields: { patronStatus, amountCents, patreonId: claimed.patreonId },
   });
+}
+
+export async function syncCampaignMembers(env) {
+  if (demoAllowed(env)) return { error: "Patreon is not configured.", status: 503 };
+  const settings = await readSettings(env);
+  const campaignId = settings[CREATOR_KEY]?.campaign_id;
+  if (!campaignId) return { error: "Connect the Patreon campaign first.", status: 409 };
+  const members = [];
+  let path =
+    `/api/oauth2/v2/campaigns/${campaignId}/members` +
+    "?include=user" +
+    "&fields%5Bmember%5D=full_name,email,patron_status,currently_entitled_amount_cents" +
+    "&fields%5Buser%5D=full_name,email,image_url" +
+    "&page%5Bcount%5D=100";
+  while (path) {
+    const result = await patreonGet(env, path);
+    if (result.error) return result;
+    const users = new Map(
+      (result.body.included || [])
+        .filter((item) => item.type === "user")
+        .map((item) => [item.id, item.attributes || {}])
+    );
+    for (const member of result.body.data || []) {
+      const userId = member.relationships?.user?.data?.id;
+      if (!userId) continue;
+      const user = users.get(userId) || {};
+      const attributes = member.attributes || {};
+      members.push({
+        patreonId: userId,
+        email: user.email || attributes.email || "",
+        name: user.full_name || attributes.full_name || "",
+        image: user.image_url || null,
+        amountCents: attributes.currently_entitled_amount_cents || 0,
+        patronStatus: attributes.patron_status || null,
+      });
+    }
+    const next = result.body.links?.next;
+    if (!next) break;
+    const nextUrl = new URL(next, "https://www.patreon.com");
+    path = `${nextUrl.pathname}${nextUrl.search}`;
+  }
+  return { members };
 }
 
 export async function campaignStatus(env) {

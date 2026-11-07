@@ -421,6 +421,25 @@ export function demoOps(path, { method = "GET", body } = {}) {
     fail("This demo does not store files.");
   }
 
+  if (resource === "fulfillment" && !id && method === "GET") {
+    return {
+      today: "2026-11-06",
+      settings: {
+        extraCopies: 0,
+        hasPass: false,
+        hq: { recipient: "", line1: "", line2: "", city: "", region: "", postalCode: "", country: "US", phone: "" },
+      },
+      goods: [],
+      tiers: [],
+      items: [],
+      months: [],
+      patrons: [],
+      shipments: [],
+      invoices: [],
+      edits: [],
+    };
+  }
+
   fail("Not found.");
 }
 

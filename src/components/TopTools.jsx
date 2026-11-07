@@ -4,6 +4,7 @@ import { usePatreon } from "../context/Patreon.jsx";
 import { loadDemoMode } from "../demoMode.js";
 import { OPS_PATH, onOps, siteHref } from "../ops/route.js";
 import { patreonConfig } from "../patreon.js";
+import { AddressModal, shouldAutoOpen, takeAddressOpen, useMailAttention } from "./AddressModal.jsx";
 import { ModeSwitch } from "./ModeSwitch.jsx";
 import { PatreonMark } from "./PatreonMark.jsx";
 
@@ -91,6 +92,7 @@ function SignInPanel() {
         <PatreonMark />
         Patreon
       </p>
+      <p className="drawer__link is-disabled">Mailing address</p>
       <p className="drawer__meta">
         Sign in with Patreon to link your membership.
         {live ? "" : " Demo mode: no Patreon client is configured."}
@@ -156,8 +158,11 @@ export function TopTools() {
   const { lite, nsfw, ambient, toggleTheme, toggleRating, toggleAmbient } = useSiteMode();
   const { profile, status, error, isPatron } = usePatreon();
   const [open, setOpen] = useState(null);
+  const [mail, setMail] = useState(false);
+  const [mailSaved, setMailSaved] = useState(false);
   const [demo, setDemo] = useState(false);
   const rootRef = useRef(null);
+  const needsAddress = useMailAttention() && !mailSaved;
 
   useEffect(() => {
     loadDemoMode().then(setDemo);
@@ -182,6 +187,10 @@ export function TopTools() {
   useEffect(() => {
     if (error) setOpen("account");
   }, [error]);
+
+  useEffect(() => {
+    if (takeAddressOpen() || shouldAutoOpen(needsAddress)) setMail(true);
+  }, [needsAddress]);
 
   const toggle = (id) => setOpen((current) => (current === id ? null : id));
   const viaPatreon = profile && profile.provider !== "email" && profile.provider !== "google";
@@ -220,8 +229,8 @@ export function TopTools() {
 
       <button
         type="button"
-        className="tool"
-        aria-label="Display settings"
+        className={`tool${needsAddress ? " tool--attention" : ""}`}
+        aria-label={needsAddress ? "Display settings, mailing address needed" : "Display settings"}
         aria-expanded={open === "settings"}
         aria-controls="tools-settings"
         onClick={() => toggle("settings")}
@@ -246,6 +255,19 @@ export function TopTools() {
           >
             Ambient Mode
           </button>
+          {profile ? (
+            <button type="button" className="drawer__link drawer__link--button" onClick={() => setMail(true)}>
+              Mailing address
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="drawer__link drawer__link--button is-disabled"
+              onClick={() => setOpen("account")}
+            >
+              Mailing address
+            </button>
+          )}
           {(demo || onOps) && (
             <a className="drawer__link" href={siteHref(onOps ? "/" : OPS_PATH)}>
               {onOps ? "Back to site" : "Operations"}
@@ -253,6 +275,14 @@ export function TopTools() {
           )}
         </div>
       )}
+
+      <AddressModal
+        open={mail}
+        onClose={(saved) => {
+          setMail(false);
+          if (saved === true) setMailSaved(true);
+        }}
+      />
 
       {open === "account" && (
         <div id="tools-account" className="drawer" aria-label="Account">

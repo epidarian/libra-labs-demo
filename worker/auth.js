@@ -2,6 +2,7 @@ import { demoAllowed } from "./demo.js";
 import { googleUser } from "./google.js";
 import { hashPassword, verifyPassword } from "./passwords.js";
 import { patronClaim } from "./patreon.js";
+import { readAddress, writeAddress } from "./patrons.js";
 
 const SESSION_SECONDS = 60 * 60 * 24 * 30;
 const COOKIE = "libra_session";
@@ -54,7 +55,7 @@ export function isAdmin(env, user) {
   return user.role === "admin" || adminEmails(env).includes(user.email);
 }
 
-function profile(env, user) {
+export function profile(env, user) {
   return {
     name: user.name || user.email.split("@")[0],
     email: user.email,
@@ -62,6 +63,7 @@ function profile(env, user) {
     provider: user.provider || "email",
     patronStatus: null,
     amountCents: 0,
+    patreonId: user.patreon_id || null,
     role: isAdmin(env, user) ? "admin" : "user",
   };
 }
@@ -161,7 +163,8 @@ export async function userForRequest(env, request) {
   const now = Math.floor(Date.now() / 1000);
   return env.DB.prepare(
     `SELECT users.id AS id, users.email AS email, users.role AS role,
-            users.name AS name, users.image AS image, users.provider AS provider
+            users.name AS name, users.image AS image, users.provider AS provider,
+            users.patreon_id AS patreon_id
      FROM sessions
      JOIN users ON users.id = sessions.user_id
      WHERE sessions.token_hash = ? AND sessions.expires_at > ?
@@ -177,6 +180,20 @@ export async function handleAuth(request, env, url) {
     const user = await userForRequest(env, request);
     if (!user) return json({ error: "Not signed in." }, 401);
     return json({ ...profile(env, user), ...(await patronClaim(request, env)) });
+  }
+
+  if (path === "/api/auth/address" && (request.method === "GET" || request.method === "PUT")) {
+    const user = await userForRequest(env, request);
+    if (!user) return json({ error: "Not signed in." }, 401);
+    if (!user.patreon_id) return json({ error: "Link Patreon first." }, 409);
+    const claim = await patronClaim(request, env);
+    if (claim.patronStatus !== "active_patron") {
+      return json({ error: "There is nothing to ship right now." }, 403);
+    }
+    if (request.method === "GET") return json(await readAddress(env, user.patreon_id));
+    const saved = await writeAddress(env, user, claim, await readBody(request));
+    if (saved.error) return json({ error: saved.error }, saved.status);
+    return json(saved);
   }
 
   if (request.method === "POST" && path === "/api/auth/logout") {

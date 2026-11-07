@@ -1,4 +1,5 @@
 export const OPS_PATH = "/ops";
+export const PARTNER_PATH = "/partner";
 
 export function appPathname() {
   let path = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -15,8 +16,9 @@ export function appPathname() {
 const path = appPathname();
 
 export const onOps = path === OPS_PATH;
+export const onPartner = path === PARTNER_PATH;
 
-export const onSite = path === "/" || onOps;
+export const onSite = path === "/" || onOps || onPartner;
 
 export function siteHref(path) {
   const normalized = path.startsWith("/") ? path : `/${path}`;

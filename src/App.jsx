@@ -7,12 +7,14 @@ import { SiteModeProvider, useSiteMode } from "./context/SiteMode.jsx";
 import { NsfwView } from "./nsfw/NsfwView.jsx";
 import { NotFound } from "./ops/NotFound.jsx";
 import { OpsPanel } from "./ops/OpsPanel.jsx";
-import { onOps, onSite } from "./ops/route.js";
+import { PartnerPanel } from "./partner/PartnerPanel.jsx";
+import { onOps, onPartner, onSite } from "./ops/route.js";
 import { SfwView } from "./sfw/SfwView.jsx";
 
 function Shell() {
   const { nsfw } = useSiteMode();
 
+  if (onPartner) return <PartnerPanel />;
   if (onOps) return <OpsPanel />;
 
   return (

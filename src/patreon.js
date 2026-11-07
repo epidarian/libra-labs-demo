@@ -55,7 +55,7 @@ export function creatorAuthorizeUrl(state) {
     response_type: "code",
     client_id: patreonConfig.clientId,
     redirect_uri: redirectUri(),
-    scope: "identity campaigns",
+    scope: "identity campaigns campaigns.members",
     state,
   });
   return `https://www.patreon.com/oauth2/authorize?${params}`;
@@ -72,11 +72,14 @@ export function authorizeUrl(state) {
   return `https://www.patreon.com/oauth2/authorize?${params}`;
 }
 
-export async function exchangeCode(code) {
+export const BIND_KEY = "libra-patreon-bind";
+export const OPEN_ADDRESS_KEY = "libra-open-address";
+
+export async function exchangeCode(code, bind = false) {
   const res = await fetch(patreonConfig.exchangeUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code, redirect_uri: redirectUri() }),
+    body: JSON.stringify({ code, redirect_uri: redirectUri(), bind }),
   });
   if (!res.ok) throw new Error(`Exchange failed (${res.status})`);
   return res.json();

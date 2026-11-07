@@ -4,6 +4,7 @@ import { clearDemoData, demoAllowed } from "./demo.js";
 import { handleMedia } from "./gallery.js";
 import { handleLegal } from "./legal.js";
 import { handleOps } from "./ops.js";
+import { handlePartner } from "./fulfillment.js";
 import { handlePatreon } from "./patreon.js";
 
 async function opsDocument(request, env, url) {
@@ -26,6 +27,19 @@ export default {
     ) {
       return opsDocument(request, env, url);
     }
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      (url.pathname === "/partner" || url.pathname === "/partner/")
+    ) {
+      const page = new URL(url);
+      page.pathname = "/partner";
+      const asset = await env.ASSETS.fetch(new Request(page, request));
+      return new Response(asset.body, {
+        status: 404,
+        statusText: "Not Found",
+        headers: asset.headers,
+      });
+    }
     try {
       if (!demoAllowed(env)) await clearDemoData(env);
       if (url.pathname.startsWith("/api/auth/")) return await handleAuth(request, env, url);
@@ -34,6 +48,7 @@ export default {
         return await handleContent(request, env, url);
       }
       if (url.pathname.startsWith("/api/ops/")) return await handleOps(request, env, url);
+      if (url.pathname.startsWith("/api/partner/")) return await handlePartner(request, env, url);
       if (url.pathname.startsWith("/media/")) return await handleMedia(request, env, url);
       const legal = await handleLegal(request, env, url);
       if (legal) return legal;
