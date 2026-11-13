@@ -28,10 +28,18 @@ function WindowHead({ kicker, title, deck, count }) {
   );
 }
 
-function mediaUrl(work, file) {
-  if (file.slot === "thumb") return `/media/gallery/${work.slug}/thumb`;
-  if (file.slot === "full") return `/media/gallery/${work.slug}/full`;
-  return `/media/gallery/${work.slug}/files/${file.id}`;
+function mediaUrl(work, file, download = false) {
+  const path =
+    file.slot === "thumb"
+      ? `/media/gallery/${work.slug}/thumb`
+      : file.slot === "full"
+        ? `/media/gallery/${work.slug}/full`
+        : `/media/gallery/${work.slug}/files/${file.id}`;
+  const params = new URLSearchParams();
+  if (file.id) params.set("v", file.id);
+  if (download) params.set("download", "1");
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }
 
 function blocked(work, file, profile) {
@@ -63,18 +71,19 @@ function thumbHidden(work, profile) {
 }
 
 function Picture({ work, locked, hideThumb, lockLabel }) {
-  const [photo, setPhoto] = useState(false);
-  const src = hideThumb ? null : work.slug ? `/media/gallery/${work.slug}/thumb` : `/media/gallery/${work.id}`;
+  const [failed, setFailed] = useState(false);
+  const version = work.thumb?.id || "";
+  useEffect(() => {
+    setFailed(false);
+  }, [work.id, version, hideThumb]);
+  const src = hideThumb || failed || !work.slug ? null : mediaUrl(work, work.thumb || { slot: "thumb" });
   return (
     <>
-      {photo && src ? (
-        <img className="art art--photo" src={src} alt={work.title} />
+      {src ? (
+        <img className="art art--photo" src={src} alt={work.title} onError={() => setFailed(true)} />
       ) : (
         <Art motif={work.motif} />
       )}
-      {src && !photo ? (
-        <img className="art-probe" src={src} alt="" onLoad={() => setPhoto(true)} onError={() => {}} />
-      ) : null}
       {locked ? (
         <div className="lock">
           <span className="lock__icon" aria-hidden="true">🔒</span>
@@ -105,9 +114,9 @@ function assetsOf(work) {
 
 function tileSrc(work, file, profile) {
   if (!work.slug) return null;
-  if (file.slot === "thumb" && !thumbHidden(work, profile)) return `/media/gallery/${work.slug}/thumb`;
+  if (file.slot === "thumb" && !thumbHidden(work, profile)) return mediaUrl(work, file);
   if (file.slot === "full" && !thumbHidden(work, profile) && (blocked(work, file, profile) || !file.viewable)) {
-    return `/media/gallery/${work.slug}/thumb`;
+    return work.thumb ? mediaUrl(work, work.thumb) : null;
   }
   if (!isImage(file) || blocked(work, file, profile) || !file.viewable) return null;
   return mediaUrl(work, file);
@@ -122,8 +131,8 @@ function Viewer({ work, profile, tiers, onClose }) {
   const label = accessLabel(file?.patronsOnly ? { patronsOnly: true } : work, tiers);
   const showImage = file && isImage(file) && file.viewable && !fileBlocked;
   const picture = file && (file.slot === "full" || file.slot === "thumb");
-  const showTeaser = !showImage && picture && work.slug && !thumbHidden(work, profile);
-  const stageSrc = showImage ? mediaUrl(work, file) : showTeaser ? `/media/gallery/${work.slug}/thumb` : null;
+  const showTeaser = !showImage && picture && work.slug && work.thumb && !thumbHidden(work, profile);
+  const stageSrc = showImage ? mediaUrl(work, file) : showTeaser ? mediaUrl(work, work.thumb) : null;
 
   useEffect(() => {
     const onKey = (event) => {
@@ -207,7 +216,7 @@ function Viewer({ work, profile, tiers, onClose }) {
             </>
           ) : null}
           {file && file.downloadable && !fileBlocked ? (
-            <a className="btn" href={`${mediaUrl(work, file)}?download=1`}>
+            <a className="btn" href={mediaUrl(work, file, true)}>
               Download
             </a>
           ) : null}
@@ -230,7 +239,7 @@ export function Gallery({ page }) {
         deck={page.deck}
         count={`${page.works.length} pictures`}
       />
-      {page.works.length === 0 ? <p className="deck">No pictures yet.</p> : null}
+      {page.works.length === 0 && !page.pending ? <p className="deck">No pictures yet.</p> : null}
       <div className="grid">
         {page.works.map((work, i) => {
           const locked = !meetsTier(profile, work);

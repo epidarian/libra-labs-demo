@@ -3,6 +3,7 @@ import { json, readBody, tokenHash } from "./auth.js";
 import { readSettings, sameOrigin, text, writeSetting } from "./content.js";
 import { cookie } from "./auth.js";
 import { syncCampaignMembers } from "./patreon.js";
+import { copiesForPatrons, entitled, resolvedExtras } from "../src/fulfillment/rules.js";
 
 const KEY = "fulfillment";
 const KINDS = ["print", "sticker", "keychain", "other"];
@@ -66,7 +67,7 @@ async function lockedAt(env, month) {
 
 async function loadBundle(env) {
   const stored = settingsOf((await readSettings(env))[KEY]);
-  const [goods, tiers, items, assets, links, months, patrons, shipments, invoices, edits] = await Promise.all([
+  const [goods, tiers, items, assets, links, months, patrons, shipments, invoices, edits, orderLines] = await Promise.all([
     env.DB.prepare("SELECT * FROM print_goods ORDER BY name").all(),
     env.DB.prepare("SELECT id, title, amount_cents FROM tiers ORDER BY sort, amount_cents").all(),
     env.DB.prepare(
@@ -88,6 +89,7 @@ async function loadBundle(env) {
        FROM catalog_edits LEFT JOIN print_goods ON print_goods.id = catalog_edits.print_good_id
        WHERE catalog_edits.acked_at IS NULL ORDER BY catalog_edits.created_at`
     ).all(),
+    env.DB.prepare("SELECT month, item_id, patron_qty, extra_qty, price_cents FROM order_lines").all(),
   ]);
   const tiersByItem = new Map();
   for (const link of links.results) {
@@ -117,6 +119,8 @@ async function loadBundle(env) {
     shipments: shipments.results,
     invoices: invoices.results,
     edits: edits.results,
+    // Quantities frozen when a month was locked.
+    orderLines: orderLines.results,
   };
 }
 
@@ -392,26 +396,6 @@ async function markPaid(env, id) {
   return json({ ok: true });
 }
 
-function resolvedExtras(itemExtra, settingsExtra) {
-  if (itemExtra != null) return itemExtra;
-  return settingsExtra == null ? 0 : settingsExtra;
-}
-
-function copiesForPatrons(count, headcount) {
-  return headcount * (count == null ? 1 : count);
-}
-
-function entitled(patron, item, tiers) {
-  const amounts = item.amounts || [];
-  if (patron.patron_status !== "active_patron" || !amounts.length) return false;
-  if (item.inclusive) return amounts.some((amount) => patron.amount_cents >= amount);
-  let band = null;
-  for (const tier of tiers) {
-    if (patron.amount_cents >= tier.amount_cents && (band == null || tier.amount_cents > band)) band = tier.amount_cents;
-  }
-  return band != null && amounts.includes(band);
-}
-
 async function monthModel(env, month) {
   if (!MONTH.test(month)) return { error: "Choose a month.", status: 400 };
   const bundle = await loadBundle(env);
@@ -433,6 +417,7 @@ async function orderRows(env, month) {
       .all();
     return {
       rows: results.map((row) => ({
+        item_id: row.item_id,
         name: row.name,
         kind: row.kind,
         kind_note: row.kind_note,
@@ -447,6 +432,7 @@ async function orderRows(env, month) {
     rows: model.items.map((item) => {
       const live = model.bundle.patrons.filter((patron) => entitled(patron, item, model.bundle.tiers)).length;
       return {
+        item_id: item.id,
         name: item.good_name,
         kind: item.kind,
         kind_note: item.kind_note,
@@ -615,6 +601,16 @@ async function runBatch(env, statements) {
   }
 }
 
+// D1 takes at most 100 bound values per statement.
+async function removeRows(env, table, ids) {
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    await env.DB.prepare(`DELETE FROM ${table} WHERE id IN (${chunk.map(() => "?").join(", ")})`)
+      .bind(...chunk)
+      .run();
+  }
+}
+
 function fileResponse(body, filename, type) {
   return new Response(body, {
     headers: {
@@ -635,11 +631,13 @@ export async function lockMonth(env, month) {
     if (!item.in_stock) return json({ error: `${item.good_name} is out of stock.` }, 409);
   }
   const stored = settingsOf((await readSettings(env))[KEY]);
-  const statements = [
-    env.DB.prepare("INSERT INTO fulfillment_months (month, locked_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))").bind(
-      month
-    ),
-  ];
+  // The lock record is written last, so a month only counts as locked once every order
+  // line and parcel is saved. The ids are kept so a failed attempt removes exactly the
+  // rows it wrote. A second lock running at the same time fails on the order lines'
+  // unique (month, item) key, so only one attempt can get through.
+  const statements = [];
+  const orderIds = [];
+  const shipmentIds = [];
   let extras = 0;
   const patrons = new Map();
   for (const item of model.items) {
@@ -647,22 +645,26 @@ export async function lockMonth(env, month) {
     const patronQty = copiesForPatrons(item.count, live.length);
     const extraQty = resolvedExtras(item.extra_copies, stored.extraCopies);
     extras += extraQty;
+    const id = crypto.randomUUID();
+    orderIds.push(id);
     statements.push(
       env.DB.prepare(
         `INSERT INTO order_lines (id, month, item_id, print_good_id, patron_qty, extra_qty, price_cents)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).bind(crypto.randomUUID(), month, item.id, item.print_good_id, patronQty, extraQty, item.price_cents)
+      ).bind(id, month, item.id, item.print_good_id, patronQty, extraQty, item.price_cents)
     );
     for (const patron of live) patrons.set(patron.patreon_id, patron);
   }
   for (const patron of patrons.values()) {
+    const id = crypto.randomUUID();
+    shipmentIds.push(id);
     statements.push(
       env.DB.prepare(
         `INSERT INTO shipments (
            id, month, dest, patreon_id, recipient, line1, line2, city, region, postal_code, country, phone
          ) VALUES (?, ?, 'patron', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
-        crypto.randomUUID(),
+        id,
         month,
         patron.patreon_id,
         patron.recipient || patron.name || "",
@@ -677,13 +679,15 @@ export async function lockMonth(env, month) {
     );
   }
   if (extras > 0) {
+    const id = crypto.randomUUID();
+    shipmentIds.push(id);
     statements.push(
       env.DB.prepare(
         `INSERT INTO shipments (
            id, month, dest, patreon_id, recipient, line1, line2, city, region, postal_code, country, phone
          ) VALUES (?, ?, 'hq', '', ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
-        crypto.randomUUID(),
+        id,
         month,
         stored.hq.recipient || "Libra Labs LLC",
         stored.hq.line1,
@@ -696,7 +700,25 @@ export async function lockMonth(env, month) {
       )
     );
   }
-  await runBatch(env, statements);
+  try {
+    await runBatch(env, statements);
+    await env.DB.prepare(
+      "INSERT INTO fulfillment_months (month, locked_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+    )
+      .bind(month)
+      .run();
+  } catch (error) {
+    console.error(JSON.stringify({ message: "month lock failed", month, error: String(error) }));
+    try {
+      await removeRows(env, "order_lines", orderIds);
+      await removeRows(env, "shipments", shipmentIds);
+    } catch (cleanup) {
+      console.error(JSON.stringify({ message: "month lock cleanup failed", month, error: String(cleanup) }));
+      return json({ error: "Locking failed partway and could not be undone. Tell Libra Labs before trying again." }, 500);
+    }
+    if (await lockedAt(env, month)) return json({ error: "That month is locked." }, 409);
+    return json({ error: "Locking failed, so nothing was saved. Try again." }, 500);
+  }
   console.log(JSON.stringify({ message: "month locked", month, shipments: patrons.size + (extras > 0 ? 1 : 0) }));
   return json({ ok: true, locked_at: nowSql() });
 }

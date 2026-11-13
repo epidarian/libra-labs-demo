@@ -17,7 +17,15 @@ function conventionItems(rows) {
 }
 
 function withContent(catalog, zone, content) {
-  if (!content) return catalog;
+  if (!content) {
+    return {
+      ...catalog,
+      gallery: { ...catalog.gallery, works: [], pending: true },
+      comics: { ...catalog.comics, items: [] },
+      store: { ...catalog.store, items: [] },
+      conventions: { ...catalog.conventions, items: [] },
+    };
+  }
   const about = content.about?.[zone];
   const live = {
     ...catalog,

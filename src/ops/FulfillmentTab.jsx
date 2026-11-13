@@ -1,15 +1,46 @@
-import { useState } from "react";
+import { useId, useState } from "react";
+import { Catalog, priceError } from "../fulfillment/Goods.jsx";
+import { bandOf, copiesForPatrons, entitled, resolvedExtras } from "../fulfillment/rules.js";
 import { SheetActions } from "../fulfillment/SheetView.jsx";
-import { centsFromDollars, dollarInput, money } from "../fulfillment/sheets.js";
+import {
+  addressLine,
+  audienceLabel,
+  centsFromDollars,
+  dayLabel,
+  dollarInput,
+  lockBlockers,
+  money,
+  monthLabel,
+  monthView,
+  tierLabel,
+} from "../fulfillment/sheets.js";
 import { ops, opsUpload, useOps } from "./api.js";
+import { Dropzone } from "./files.jsx";
+import { Modal, useConfirm, useDiscardGuard } from "./Modal.jsx";
 import { Notice } from "./Notice.jsx";
+import { PARTNER_PATH, siteHref } from "./route.js";
+import {
+  ActionButton,
+  Empty,
+  Field,
+  SaveBar,
+  SectionHead,
+  Segmented,
+  Status,
+  Switch,
+  Tip,
+  plural,
+  useDirty,
+  useToast,
+} from "./ui.jsx";
 
-const KINDS = [
-  ["print", "Print"],
-  ["sticker", "Sticker"],
-  ["keychain", "Keychain"],
-  ["other", "Other"],
-];
+const MONTH = /^\d{4}-\d{2}$/;
+const MAX_PRINT_FILE = 40 * 1024 * 1024;
+const PATRON_STATUS = {
+  active_patron: "Active",
+  declined_patron: "Declined",
+  former_patron: "Former",
+};
 
 const blankHq = {
   recipient: "",
@@ -22,102 +53,65 @@ const blankHq = {
   phone: "",
 };
 
-function monthLabel(month) {
-  const [year, m] = String(month).split("-");
-  if (!year || !m) return month;
-  return new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
-}
-
-function dayLabel(iso) {
-  const [year, m, d] = String(iso).slice(0, 10).split("-");
-  if (!year || !m || !d) return iso;
-  return new Date(Number(year), Number(m) - 1, Number(d)).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function unfulfilled(count, extra, amounts, hqExtra) {
-  const quantityEmpty = count === "" || count == null;
-  const extras = extra === "" || extra == null ? (hqExtra == null ? 0 : Number(hqExtra)) : Number(extra);
-  return quantityEmpty && extras === 0 && !(amounts || []).length;
-}
-
-function pledgeLabel(tiers, cents) {
-  const tier = tiers.find((row) => row.amount_cents === cents);
-  return tier ? `${tier.title} ${money(cents)}` : money(cents);
-}
-
-function pledgeChoices(tiers, selected) {
-  const amounts = new Set(tiers.map((tier) => tier.amount_cents));
-  for (const amount of selected || []) amounts.add(amount);
-  return [...amounts].filter((amount) => Number.isInteger(amount)).sort((a, b) => a - b);
-}
-
-function kindLabel(kind, note) {
-  if (kind === "other") return note || "Other";
-  return KINDS.find(([value]) => value === kind)?.[1] || kind;
-}
-
-function shipmentFor(shipments, month, patronId) {
-  return shipments.find((row) => row.month === month && row.dest === "patron" && row.patreon_id === patronId);
+function countError(value) {
+  if (value === "" || value == null) return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 ? null : "Use a whole number";
 }
 
 export function FulfillmentTab() {
-  const { data, error, reload, run } = useOps("fulfillment");
+  const { data, error, reload, run, send } = useOps("fulfillment");
   const [month, setMonth] = useState("");
   const [added, setAdded] = useState([]);
-  const [notice, setNotice] = useState("");
-
-  const months = data
-    ? [...new Set([...data.items.map((item) => item.month), ...data.months.map((row) => row.month), ...added])].sort()
-    : [];
-
-  const selected = month || months[months.length - 1] || "";
-  const locked = data?.months.find((row) => row.month === selected)?.locked_at || "";
-  const lines = data?.items.filter((item) => item.month === selected) || [];
-
-  const act = (request) =>
-    run(request).then((result) => {
-      setNotice("");
-      return result;
-    });
-
-  const addMonth = (value) => {
-    if (!value) return;
-    setAdded((current) => (current.includes(value) ? current : [...current, value]));
-    setMonth(value);
-  };
+  const [ask, confirmDialog] = useConfirm();
 
   if (!data) {
     return (
       <div className="panel">
-        <Notice error={error} />
+        <Notice error={error} loading={!error} />
       </div>
     );
   }
+
+  const thisMonth = data.today.slice(0, 7);
+  const months = [
+    ...new Set([...data.items.map((item) => item.month), ...data.months.map((row) => row.month), ...added]),
+  ].sort();
+  const selected = months.includes(month) ? month : months.includes(thisMonth) ? thisMonth : months[months.length - 1] || "";
+  const outOfStock = data.goods.filter((good) => !good.in_stock).length;
+
+  const addMonth = (value) => {
+    setAdded((current) => (current.includes(value) ? current : [...current, value]));
+    setMonth(value);
+  };
 
   return (
     <>
       {data.edits.length ? (
         <section className="panel ops__section fulfill-alert">
-          <h2 className="panel__title">Price changes</h2>
-          <ul className="ops__list">
+          <SectionHead
+            title="Price changes"
+            count={data.edits.length}
+            help="The print partner changed these catalog prices. Items already on a month keep the price they were added with."
+          >
+            <ActionButton
+              busyLabel="Clearing…"
+              onClick={() => run(() => ops("fulfillment/edits", { method: "POST" }), { ok: "Price changes cleared." })}
+            >
+              Mark as seen
+            </ActionButton>
+          </SectionHead>
+          <ul className="ops__bullets">
             {data.edits.map((edit) => (
               <li key={edit.id}>
-                {edit.good_name || "An item"} was {money(edit.old_price_cents)}, now {money(edit.new_price_cents)}
+                {edit.good_name || "A deleted item"}: {money(edit.old_price_cents)} → {money(edit.new_price_cents)}
               </li>
             ))}
           </ul>
-          <button type="button" className="ops__btn" onClick={() => act(() => ops("fulfillment/edits", { method: "POST" }))}>
-            Dismiss
-          </button>
         </section>
       ) : null}
 
       <section className="panel fulfill-desk">
-        <Notice error={error || notice} />
         <aside className="fulfill-rail" aria-label="Months">
           {months.map((item) => {
             const count = data.items.filter((line) => line.month === item).length;
@@ -131,707 +125,941 @@ export function FulfillmentTab() {
                 onClick={() => setMonth(item)}
               >
                 <strong>{monthLabel(item)}</strong>
-                <span>{isLocked ? "Locked" : count ? `${count} ${count === 1 ? "item" : "items"}` : "Empty"}</span>
+                <span>{isLocked ? "Locked" : count ? plural(count, "item") : "Empty"}</span>
               </button>
             );
           })}
-          <label className="field fulfill-add">
-            <span className="ops__muted">Add month</span>
-            <input type="month" onChange={(event) => addMonth(event.target.value)} />
-          </label>
+          <AddMonth months={months} onAdd={addMonth} />
         </aside>
 
         {selected ? (
-          <MonthPane
-            month={selected}
-            locked={locked}
-            lines={lines}
-            data={data}
-            act={act}
-            reload={reload}
-            onError={setNotice}
-          />
+          <MonthPane key={selected} data={data} view={monthView(data, selected)} run={run} send={send} reload={reload} ask={ask} />
         ) : (
-          <p className="ops__muted">Choose a month.</p>
+          <Empty>Add a month to start an order.</Empty>
         )}
       </section>
 
-      <details className="panel ops__section fulfill-fold">
+      <details className="panel ops__section fold">
         <summary>
-          <span className="panel__title">Catalog</span>
+          <span className="fold__title">Catalog</span>
+          <span className="fold__meta">
+            {plural(data.goods.length, "item")}
+            {outOfStock ? <Status tone="warn">{outOfStock} out of stock</Status> : null}
+          </span>
         </summary>
-        <Catalog goods={data.goods} act={act} />
+        <div className="fold__body">
+          <Catalog
+            goods={data.goods}
+            items={data.items}
+            create={(body) => send(() => ops("fulfillment/goods", { method: "POST", body }))}
+            update={(id, body) => send(() => ops(`fulfillment/goods/${id}`, { method: "PATCH", body }))}
+            destroy={(id) => send(() => ops(`fulfillment/goods/${id}`, { method: "DELETE" }))}
+          />
+        </div>
       </details>
 
-      <details className="panel ops__section fulfill-fold">
+      <details className="panel ops__section fold">
         <summary>
-          <span className="panel__title">Headquarters</span>
+          <span className="fold__title">Headquarters</span>
+          <span className="fold__meta">
+            {data.settings.hq?.line1 ? null : <Status tone="warn">No address</Status>}
+          </span>
         </summary>
-        <HeadquartersForm
-          settings={data.settings}
-          onSave={(body) => act(() => ops("fulfillment/settings", { method: "PUT", body }))}
-        />
+        <div className="fold__body">
+          {/* Remounts on the stored values so a save shows exactly what the server kept. */}
+          <HeadquartersForm
+            key={JSON.stringify([data.settings.hq, data.settings.extraCopies])}
+            settings={data.settings}
+            run={run}
+          />
+        </div>
       </details>
 
-      <details className="panel ops__section fulfill-fold">
+      <details className="panel ops__section fold">
         <summary>
-          <span className="panel__title">Partner login</span>
+          <span className="fold__title">Partner access</span>
+          <span className="fold__meta">
+            {data.settings.hasPass ? <Status tone="ok">Passphrase set</Status> : <Status tone="bad">No passphrase</Status>}
+          </span>
         </summary>
-        <PassphraseForm
-          settings={data.settings}
-          onSave={(body) => act(() => ops("fulfillment/settings", { method: "PUT", body }))}
-        />
+        <div className="fold__body">
+          <PassphraseForm settings={data.settings} send={send} ask={ask} />
+        </div>
       </details>
+      {confirmDialog}
     </>
   );
 }
 
-function MonthPane({ month, locked, lines, data, act, reload, onError }) {
-  const invoices = data.invoices
-    .filter((invoice) => invoice.month === month)
-    .sort((a, b) => Number(Boolean(a.paid_at)) - Number(Boolean(b.paid_at)));
-  const missing = data.patrons.filter((patron) => {
-    const shipment = shipmentFor(data.shipments, month, patron.patreon_id);
-    return !(shipment ? shipment.line1 : patron.line1);
-  }).length;
+function AddMonth({ months, onAdd }) {
+  const [value, setValue] = useState("");
+  const valid = MONTH.test(value);
+  const exists = months.includes(value);
+  return (
+    <form
+      className="fulfill-add"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid || exists) return;
+        onAdd(value);
+        setValue("");
+      }}
+    >
+      <input
+        className="ops__input"
+        type="month"
+        aria-label="Month to add"
+        placeholder="YYYY-MM"
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+      />
+      <button
+        type="submit"
+        className="ops__btn"
+        disabled={!valid || exists}
+        title={exists ? "That month is already listed" : "A month is kept once it has an item"}
+      >
+        Add month
+      </button>
+    </form>
+  );
+}
+
+// What stands between this month and a clean lock. Blockers match the server's own checks.
+function issuesOf(data, view) {
+  const warnings = [];
+  const noFiles = view.rows.filter((row) => !row.line.assets.length).length;
+  if (noFiles) warnings.push(`${plural(noFiles, "item")} without print files`);
+  const noAddress = view.receiving.filter((entry) => !entry.patron.line1).length;
+  if (noAddress) warnings.push(`${plural(noAddress, "patron")} without an address`);
+  if (view.extras > 0 && !data.settings.hq.line1) warnings.push("No headquarters address for the extra copies");
+  if (!data.settings.hasPass) warnings.push("The partner has no passphrase");
+  return { blockers: lockBlockers(data, view), warnings };
+}
+
+function MonthPane({ data, view, run, send, reload, ask }) {
+  const [editing, setEditing] = useState(null);
+  const locked = Boolean(view.lockedAt);
+  const { blockers, warnings } = issuesOf(data, view);
+  const openLine = editing && editing !== "new" ? view.rows.find((row) => row.line.id === editing)?.line : null;
+  const cannotAdd = !data.goods.length
+    ? "Add an item to the catalog first"
+    : !data.tiers.length
+      ? "Refresh tiers from Patreon on the Dashboard first"
+      : null;
 
   return (
     <div className="fulfill-pane">
       <header className="fulfill-head">
-        <div className="fulfill-head__title">
-          <h2 className="fulfill-month">{monthLabel(month)}</h2>
-          {locked ? <p className="ops__status">Locked {dayLabel(locked)}</p> : null}
-        </div>
-        <SheetActions base="/api/ops/fulfillment/sheets" month={month} onError={onError} />
+        <h2 className="fulfill-month">{monthLabel(view.month)}</h2>
+        {locked ? (
+          <Status tone="ok">Locked {dayLabel(view.lockedAt)}</Status>
+        ) : !blockers.length && !warnings.length ? (
+          <Status tone="ok">Ready to lock</Status>
+        ) : (
+          <Status tone="info">Open</Status>
+        )}
+        <Tip
+          text={
+            locked
+              ? "The print partner locked this month. The order and addresses are frozen; the partner adds tracking and marks parcels shipped."
+              : "The print partner locks a month on or after the 1st. That freezes the quantities and copies every patron's address."
+          }
+        />
       </header>
 
+      {!locked && (blockers.length || warnings.length) ? (
+        <ul className="issues">
+          {blockers.map((text) => (
+            <li key={text}>
+              <Status tone="bad" title="The month cannot be locked until this is fixed">
+                {text}
+              </Status>
+            </li>
+          ))}
+          {warnings.map((text) => (
+            <li key={text}>
+              <Status tone="warn" title="Worth fixing before the month is locked">
+                {text}
+              </Status>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       <section className="fulfill-block">
-        <h3 className="panel__title">Order</h3>
-        <OrderTable
-          key={month}
-          month={month}
-          locked={locked}
-          lines={lines}
-          goods={data.goods}
-          tiers={data.tiers}
-          spareDefault={data.settings.extraCopies}
-          act={act}
-          reload={reload}
-          onError={onError}
+        <SectionHead level={3} title="Order" count={view.rows.length}>
+          {locked ? null : (
+            <button
+              type="button"
+              className="btn btn--small"
+              disabled={Boolean(cannotAdd)}
+              title={cannotAdd || undefined}
+              onClick={() => setEditing("new")}
+            >
+              Add item
+            </button>
+          )}
+        </SectionHead>
+        {view.rows.length ? (
+          <OrderTable data={data} view={view} locked={locked} onEdit={setEditing} />
+        ) : (
+          <Empty>{cannotAdd && !locked ? `${cannotAdd}.` : "Nothing on this order."}</Empty>
+        )}
+      </section>
+
+      <section className="fulfill-block">
+        <SectionHead
+          level={3}
+          title="Sheets"
+          help={locked ? "Final, as frozen at the lock." : "A preview. The numbers follow the patron list until the month is locked."}
         />
+        <SheetActions base="/api/ops/fulfillment/sheets" month={view.month} />
       </section>
 
-      <section className="fulfill-block fulfill-block--later">
-        <div className="ops__bar">
-          <h3 className="panel__title">Patrons</h3>
-          {missing ? <p className="ops__status">{missing} without an address</p> : null}
-          <button type="button" className="ops__btn" onClick={() => act(() => ops("fulfillment/sync", { method: "POST" }))}>
-            Sync from Patreon
-          </button>
-        </div>
-        {data.patrons.length ? (
-          <div className="ops__scroll">
-            <table className="ops__table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Pledge</th>
-                  <th>Address</th>
-                  <th>Tracking</th>
-                  <th>Shipped</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.patrons.map((patron) => {
-                  const shipment = shipmentFor(data.shipments, month, patron.patreon_id);
-                  const line1 = shipment ? shipment.line1 : patron.line1;
-                  return (
-                    <tr key={patron.patreon_id}>
-                      <td>{patron.name || patron.email}</td>
-                      <td>{money(patron.amount_cents)}</td>
-                      <td>{line1 ? "" : "No address"}</td>
-                      <td>{shipment?.tracking || ""}</td>
-                      <td>{shipment?.fulfilled ? "Shipped" : ""}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="ops__muted">None.</p>
-        )}
-      </section>
+      {locked ? <Parcels view={view} /> : <Patrons data={data} view={view} run={run} />}
 
-      <section className="fulfill-block fulfill-block--later">
-        <h3 className="panel__title">Invoices</h3>
-        {invoices.length ? (
-          <div className="ops__scroll">
-            <table className="ops__table">
-              <thead>
-                <tr>
-                  <th>Amount</th>
-                  <th>Note</th>
-                  <th>File</th>
-                  <th>Paid</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((invoice) => (
-                  <tr key={invoice.id}>
-                    <td>{money(invoice.amount_cents)}</td>
-                    <td>{invoice.note}</td>
-                    <td>
-                      <a href={`/api/ops/fulfillment/invoices/${invoice.id}/file`}>{invoice.filename}</a>
-                    </td>
-                    <td>{invoice.paid_at ? dayLabel(invoice.paid_at) : ""}</td>
-                    <td>
-                      {invoice.paid_at ? null : (
-                        <button
-                          type="button"
-                          className="ops__btn"
-                          onClick={() => act(() => ops(`fulfillment/invoices/${invoice.id}/paid`, { method: "POST" }))}
-                        >
-                          Mark paid
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <p className="ops__muted">None.</p>
-        )}
-      </section>
+      <Invoices view={view} send={send} ask={ask} />
+
+      {editing === "new" || openLine ? (
+        <LineDialog
+          key={editing}
+          month={view.month}
+          line={openLine}
+          data={data}
+          send={send}
+          reload={reload}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function OrderTable({ month, locked, lines, goods, tiers, spareDefault, act, reload, onError }) {
-  const [open, setOpen] = useState(null);
-  const span = locked ? 6 : 7;
+function OrderTable({ data, view, locked, onEdit }) {
   return (
     <div className="ops__scroll">
       <table className="ops__table">
         <thead>
           <tr>
             <th>Item</th>
+            <th>Goes to</th>
+            <th>
+              Patrons
+              <Tip text="Copies for patrons: the number of receiving patrons times the copies each one gets." />
+            </th>
+            <th>
+              Extra
+              <Tip text="Spare copies sent to headquarters." />
+            </th>
+            <th>Total</th>
             <th>Price</th>
-            <th>Quantity</th>
-            <th>Extra copies</th>
+            <th>Cost</th>
             <th>Files</th>
-            <th>Tiers</th>
-            {locked ? null : <th></th>}
+            {locked ? null : <th />}
           </tr>
         </thead>
         <tbody>
-          {lines.map((line) => (
-            <LineRow
-              key={line.id}
-              line={line}
-              tiers={tiers}
-              spareDefault={spareDefault}
-              locked={Boolean(locked)}
-              open={open === line.id}
-              onToggle={() => setOpen((current) => (current === line.id ? null : line.id))}
-              act={act}
-              reload={reload}
-              onError={onError}
-            />
-          ))}
-          {locked ? null : (
-            <tr>
-              <td colSpan={span}>
-                {open === "new" ? (
-                  <div className="fulfill-edit">
-                    <LineForm
-                      goods={goods}
-                      tiers={tiers}
-                      spareDefault={spareDefault}
-                      onCancel={() => setOpen(null)}
-                      initial={{
-                        print_good_id: goods[0]?.id || "",
-                        price_cents: goods[0]?.price_cents ?? "",
-                        count: "",
-                        extra_copies: "",
-                        amounts: [],
-                        inclusive: 0,
-                      }}
-                      onSave={async (body) => {
-                        const result = await act(() =>
-                          ops("fulfillment/items", { method: "POST", body: { ...body, drop_on: `${month}-01` } })
-                        );
-                        if (result) setOpen(null);
-                      }}
-                    />
-                  </div>
+          {view.rows.map((row) => (
+            <tr key={row.line.id}>
+              <td>
+                <span className="ops__pair">
+                  <strong>{row.line.good_name}</strong>
+                  {!locked && !row.line.in_stock ? <Status tone="bad">Out of stock</Status> : null}
+                </span>
+              </td>
+              <td>{audienceLabel(row.line, data.tiers)}</td>
+              <td>{row.patronQty}</td>
+              <td>{row.extraQty}</td>
+              <td>
+                <strong>{row.copies}</strong>
+              </td>
+              <td>{money(row.price)}</td>
+              <td>{money(row.cents)}</td>
+              <td>
+                {row.line.assets.length ? (
+                  row.line.assets.map((asset) => (
+                    <a key={asset.id} className="filelink" href={`/api/ops/fulfillment/assets/${asset.id}`} title="Download">
+                      {asset.filename}
+                    </a>
+                  ))
                 ) : (
-                  <div className="ops__actions">
-                    {goods.length ? (
-                      <button type="button" className="ops__btn" onClick={() => setOpen("new")}>
-                        Add
-                      </button>
-                    ) : (
-                      <p className="ops__muted">Nothing in the catalog.</p>
-                    )}
-                  </div>
+                  <span className="ops__muted">None</span>
                 )}
               </td>
+              {locked ? null : (
+                <td className="ops__rowtools">
+                  <button type="button" className="ops__btn ops__btn--small" onClick={() => onEdit(row.line.id)}>
+                    Edit
+                  </button>
+                </td>
+              )}
             </tr>
-          )}
+          ))}
         </tbody>
+        <tfoot>
+          <tr>
+            <th colSpan={4}>Total</th>
+            <th>{view.copies}</th>
+            <th />
+            <th>{money(view.cents)}</th>
+            <th colSpan={locked ? 1 : 2} />
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
 }
 
-function LineRow({ line, tiers, spareDefault, locked, open, onToggle, act, reload, onError }) {
-  const names = (line.amounts || []).map((amount) => pledgeLabel(tiers, amount));
+function LineDialog({ month, line, data, send, reload, onClose }) {
+  const formId = useId();
+  const toast = useToast();
+  const [ask, confirmDialog] = useConfirm();
+  const firstGood = data.goods.find((good) => good.in_stock) || data.goods[0];
+  const start = line
+    ? {
+        goodId: line.print_good_id,
+        price: dollarInput(line.price_cents),
+        count: line.count == null ? "" : String(line.count),
+        extra: line.extra_copies == null ? "" : String(line.extra_copies),
+        amounts: [...(line.amounts || [])].sort((a, b) => a - b),
+        inclusive: Boolean(line.inclusive),
+      }
+    : { goodId: firstGood?.id || "", price: dollarInput(firstGood?.price_cents ?? ""), count: "", extra: "", amounts: [], inclusive: false };
+  const [form, setForm] = useState(start);
+  const [pending, setPending] = useState([]);
+  const [dropped, setDropped] = useState([]);
+  const [createdId, setCreatedId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [error, setError] = useState(null);
+  const formDirty = JSON.stringify(form) !== JSON.stringify(start);
+  const dirty = formDirty || pending.length > 0 || dropped.length > 0;
+  const [requestClose, discardDialog] = useDiscardGuard(dirty, onClose);
+  const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+
+  const good = data.goods.find((item) => item.id === form.goodId);
+  const name = line ? line.good_name : good?.name || "item";
+  const defaultExtra = data.settings.extraCopies;
+  const choices = [...new Set([...data.tiers.map((tier) => tier.amount_cents), ...form.amounts])]
+    .filter((amount) => Number.isInteger(amount))
+    .sort((a, b) => a - b);
+  const active = data.patrons.filter((patron) => patron.patron_status === "active_patron");
+  const inBand = (amount) => active.filter((patron) => bandOf(patron.amount_cents, data.tiers) === amount).length;
+
+  const badPrice = priceError(form.price);
+  const badCount = countError(form.count);
+  const badExtra = countError(form.extra);
+  const ready = Boolean(form.goodId) && !badPrice && !badCount && !badExtra && form.amounts.length > 0;
+
+  const receivers = active.filter((patron) => entitled(patron, form, data.tiers)).length;
+  const each = form.count === "" || badCount ? 1 : Number(form.count);
+  const extraQty = resolvedExtras(form.extra === "" || badExtra ? null : Number(form.extra), defaultExtra);
+  const copies = copiesForPatrons(each, receivers) + extraQty;
+
+  const toggle = (amount, on) =>
+    setForm((current) => ({
+      ...current,
+      amounts: on ? [...current.amounts, amount].sort((a, b) => a - b) : current.amounts.filter((value) => value !== amount),
+    }));
+
+  const addFiles = (files) => {
+    const tooBig = files.find((file) => file.size > MAX_PRINT_FILE);
+    if (tooBig) setError(`${tooBig.name} is over 40 MB.`);
+    const fits = files.filter((file) => file.size <= MAX_PRINT_FILE);
+    setPending((current) => [...current, ...fits.map((file) => ({ key: crypto.randomUUID(), file }))]);
+  };
+
+  // The item and its print files are saved together. Each finished step is cleared, so if
+  // one fails the rest stay waiting and Save picks up where it stopped.
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!ready) return;
+    setSaving(true);
+    setError(null);
+    const body = {
+      price_cents: centsFromDollars(form.price),
+      count: form.count === "" ? null : Number(form.count),
+      extra_copies: form.extra === "" ? null : Number(form.extra),
+      amounts: form.amounts,
+      inclusive: form.inclusive ? 1 : 0,
+    };
+    try {
+      let itemId = line?.id || createdId;
+      if (!itemId) {
+        setProgress("Adding the item…");
+        const result = await ops("fulfillment/items", {
+          method: "POST",
+          body: { ...body, print_good_id: form.goodId, drop_on: `${month}-01` },
+        });
+        itemId = result.id;
+        setCreatedId(itemId);
+      } else if (line && formDirty) {
+        setProgress("Saving the item…");
+        await ops(`fulfillment/items/${itemId}`, { method: "PATCH", body });
+      }
+      for (const [index, item] of pending.entries()) {
+        await opsUpload(`fulfillment/items/${itemId}/files`, item.file, { name: item.file.name }, (share) =>
+          setProgress(`Uploading ${item.file.name} (${index + 1} of ${pending.length}) ${Math.round(share * 100)}%`)
+        );
+        setPending((current) => current.filter((entry) => entry.key !== item.key));
+      }
+      for (const id of dropped) {
+        setProgress("Deleting files…");
+        await ops(`fulfillment/items/${itemId}/files/${id}`, { method: "DELETE" });
+        setDropped((current) => current.filter((entry) => entry !== id));
+      }
+      await reload();
+      toast.ok(line ? `Saved ${name}.` : `Added ${name} to ${monthLabel(month)}.`);
+      onClose();
+    } catch (err) {
+      setError(`Saving stopped: ${err.message} What finished is saved; the rest is still waiting.`);
+      await reload();
+      setSaving(false);
+      setProgress(null);
+    }
+  };
+
+  const remove = () =>
+    ask({
+      title: `Remove ${name} from ${monthLabel(month)}?`,
+      body: line.assets.length
+        ? `Its ${plural(line.assets.length, "print file")} will be deleted too. The catalog item stays.`
+        : "The catalog item stays.",
+      label: "Remove",
+      action: async () => {
+        await send(() => ops(`fulfillment/items/${line.id}`, { method: "DELETE" }));
+        onClose();
+      },
+      done: `Removed ${name} from ${monthLabel(month)}.`,
+    });
+
+  const assets = line?.assets || [];
+  const fileCount = assets.length - dropped.length + pending.length;
+
   return (
-    <>
-      <tr>
-        <td>{line.good_name}</td>
-        <td>{money(line.price_cents)}</td>
-        <td>{line.count ?? 1}</td>
-        <td>{line.extra_copies ?? ""}</td>
-        <td>
-          {line.assets.map((asset, index) => (
-            <span key={asset.id}>
-              {index ? ", " : ""}
-              <a href={`/api/ops/fulfillment/assets/${asset.id}`}>{asset.filename}</a>
-            </span>
-          ))}
-        </td>
-        <td>{names.join(", ")}</td>
-        {locked ? null : (
-          <td>
-            <button type="button" className="ops__btn" aria-expanded={open} onClick={onToggle}>
-              {open ? "Close" : "Edit"}
+    <Modal
+      className="modal--wide"
+      kicker={<span>{monthLabel(month)}</span>}
+      title={line ? name : "Add an item"}
+      onClose={requestClose}
+      busy={saving}
+      footer={
+        <>
+          {line ? (
+            <button type="button" className="btn btn--quiet btn--danger-quiet" onClick={remove} disabled={saving}>
+              Remove from month
             </button>
-          </td>
-        )}
-      </tr>
-      {unfulfilled(line.count, line.extra_copies, line.amounts, spareDefault) ? (
-        <tr>
-          <td className="fulfill-warn" colSpan={locked ? 6 : 7}>
-            warning this item is not being fulfilled
-          </td>
-        </tr>
+          ) : null}
+          <span className="modal__spacer" />
+          {progress ? (
+            <span className="modal__hint" role="status">
+              {progress}
+            </span>
+          ) : line && dirty ? (
+            <Status tone="warn">Unsaved changes</Status>
+          ) : null}
+          <button type="button" className="btn btn--quiet" onClick={() => requestClose(false)} disabled={saving}>
+            Cancel
+          </button>
+          <button type="submit" form={formId} className="btn" disabled={saving || !ready || (Boolean(line) && !dirty)}>
+            {saving ? "Saving…" : line ? "Save" : "Add"}
+          </button>
+        </>
+      }
+    >
+      {error ? (
+        <p className="ops__error" role="alert">
+          {error}
+        </p>
       ) : null}
-      {open ? (
-        <tr>
-          <td colSpan={locked ? 6 : 7}>
-            <div className="fulfill-edit">
-              <LineForm
-                goods={[{ id: line.print_good_id, name: line.good_name, price_cents: line.price_cents }]}
-                tiers={tiers}
-                spareDefault={spareDefault}
-                initial={{
-                  print_good_id: line.print_good_id,
-                  price_cents: line.price_cents,
-                  count: line.count ?? "",
-                  extra_copies: line.extra_copies ?? "",
-                  amounts: line.amounts || [],
-                  inclusive: line.inclusive ? 1 : 0,
-                }}
-                onSave={(body) =>
-                  act(() =>
-                    ops(`fulfillment/items/${line.id}`, {
-                      method: "PATCH",
-                      body: {
-                        price_cents: body.price_cents,
-                        count: body.count,
-                        extra_copies: body.extra_copies,
-                        amounts: body.amounts,
-                        inclusive: body.inclusive,
-                      },
-                    })
-                  )
-                }
-              />
-              <ul className="ops__list">
-                {line.assets.map((asset) => (
-                  <li key={asset.id}>
-                    <a href={`/api/ops/fulfillment/assets/${asset.id}`}>{asset.filename}</a>
+      <div className="editor">
+        <form id={formId} className="ops__form" onSubmit={submit}>
+          <div className="field-row field-row--2">
+            {line ? null : (
+              <Field label="Item">
+                {(props) => (
+                  <select
+                    {...props}
+                    value={form.goodId}
+                    disabled={Boolean(createdId)}
+                    onChange={(event) => {
+                      const next = data.goods.find((item) => item.id === event.target.value);
+                      setForm((current) => ({
+                        ...current,
+                        goodId: event.target.value,
+                        price: next ? dollarInput(next.price_cents) : current.price,
+                      }));
+                    }}
+                  >
+                    {data.goods.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                        {item.in_stock ? "" : " (out of stock)"}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+            )}
+            <Field
+              label="Price per copy ($)"
+              error={form.price && badPrice ? badPrice : null}
+              help={good ? `The catalog price is ${money(good.price_cents)}. This order uses the price typed here.` : undefined}
+            >
+              {(props) => <input {...props} inputMode="decimal" placeholder="0.00" value={form.price} onChange={set("price")} />}
+            </Field>
+          </div>
+
+          <fieldset className="choices">
+            <legend>
+              Tiers that receive it
+              <Tip text="The number beside each tier is its active patrons right now." />
+            </legend>
+            {choices.map((amount) => (
+              <label key={amount} className="choice">
+                <input
+                  type="checkbox"
+                  checked={form.amounts.includes(amount)}
+                  onChange={(event) => toggle(amount, event.target.checked)}
+                />
+                <span>{tierLabel(data.tiers, amount)}</span>
+                <small>{inBand(amount)}</small>
+              </label>
+            ))}
+            {choices.length ? null : <span className="ops__muted">No tiers loaded from Patreon.</span>}
+            <Switch
+              label="Include higher pledges"
+              checked={form.inclusive}
+              on="And every higher pledge"
+              off="Only the ticked tiers"
+              onChange={(inclusive) => setForm((current) => ({ ...current, inclusive }))}
+            />
+          </fieldset>
+
+          <div className="field-row field-row--2">
+            <Field label="Copies per patron" error={badCount} help="Blank means 1.">
+              {(props) => <input {...props} type="number" min="0" step="1" placeholder="1" value={form.count} onChange={set("count")} />}
+            </Field>
+            <Field
+              label="Extra copies"
+              error={badExtra}
+              help={`Spares sent to headquarters. Blank uses the default${defaultExtra == null ? ", which is none" : ` of ${defaultExtra}`}.`}
+            >
+              {(props) => (
+                <input
+                  {...props}
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder={String(defaultExtra ?? 0)}
+                  value={form.extra}
+                  onChange={set("extra")}
+                />
+              )}
+            </Field>
+          </div>
+
+          <p className="tally" data-empty={copies === 0 ? "true" : undefined} role="status">
+            {plural(receivers, "patron")} × {each} + {extraQty} extra = <strong>{plural(copies, "copy", "copies")}</strong>
+            {badPrice ? null : ` · ${money(copies * centsFromDollars(form.price))}`}
+            <Tip text="Counted from today's patron list. The final number is taken when the month is locked." />
+          </p>
+        </form>
+
+        <section className="ops__form">
+          <span className="field__top">
+            <span className="field__label">Print files</span>
+            <Tip text="The artwork the print partner downloads, up to 40 MB each." />
+            <span className="ops__muted">{fileCount ? plural(fileCount, "file") : "None"}</span>
+          </span>
+          {assets.length || pending.length ? (
+            <ul className="rows">
+              {assets.map((asset) => {
+                const gone = dropped.includes(asset.id);
+                return (
+                  <li key={asset.id} className="rows__row" data-mark={gone ? "remove" : undefined}>
+                    <a className="rows__name" href={`/api/ops/fulfillment/assets/${asset.id}`} title="Download">
+                      {asset.filename}
+                    </a>
+                    {gone ? <Status tone="bad">Will be deleted</Status> : null}
                     <button
                       type="button"
-                      className="ops__btn"
-                      onClick={() => act(() => ops(`fulfillment/items/${line.id}/files/${asset.id}`, { method: "DELETE" }))}
+                      className={gone ? "ops__btn ops__btn--small" : "ops__btn ops__btn--small ops__btn--danger"}
+                      disabled={saving}
+                      onClick={() =>
+                        setDropped((current) =>
+                          gone ? current.filter((id) => id !== asset.id) : [...current, asset.id]
+                        )
+                      }
                     >
-                      Remove
+                      {gone ? "Undo" : "Delete"}
                     </button>
                   </li>
-                ))}
-              </ul>
-              <div className="ops__actions">
-                <label className="ops__btn">
-                  Add file
-                  <input
-                    type="file"
-                    hidden
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      event.target.value = "";
-                      if (!file) return;
-                      opsUpload(`fulfillment/items/${line.id}/files`, file, { name: file.name })
-                        .then(() => reload())
-                        .catch((err) => onError(err.message));
-                    }}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className="ops__btn ops__btn--danger"
-                  onClick={() => act(() => ops(`fulfillment/items/${line.id}`, { method: "DELETE" }))}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          </td>
-        </tr>
-      ) : null}
-    </>
+                );
+              })}
+              {pending.map((item) => (
+                <li key={item.key} className="rows__row">
+                  <span className="rows__name">{item.file.name}</span>
+                  <Status tone="info">New</Status>
+                  <button
+                    type="button"
+                    className="ops__btn ops__btn--small"
+                    disabled={saving}
+                    onClick={() => setPending((current) => current.filter((entry) => entry.key !== item.key))}
+                  >
+                    Undo
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <Dropzone compact label="Add files" hint="Drop here or click to choose" multiple disabled={saving} onFiles={addFiles} />
+        </section>
+      </div>
+      {discardDialog}
+      {confirmDialog}
+    </Modal>
   );
 }
 
-function Catalog({ goods, act }) {
-  const [adding, setAdding] = useState(false);
+function Patrons({ data, view, run }) {
+  const [filter, setFilter] = useState("receiving");
+  const receiving = new Map(view.receiving.map((entry) => [entry.patron.patreon_id, entry.items]));
+  const noAddress = view.receiving.filter((entry) => !entry.patron.line1);
+  const shown =
+    filter === "receiving"
+      ? view.receiving.map((entry) => entry.patron)
+      : filter === "missing"
+        ? noAddress.map((entry) => entry.patron)
+        : data.patrons;
+
   return (
-    <section className="ops__section">
-      <div className="ops__bar">
-        <button type="button" className="ops__btn" aria-expanded={adding} onClick={() => setAdding((current) => !current)}>
-          {adding ? "Cancel" : "Add"}
-        </button>
-      </div>
-      {adding ? (
-        <GoodForm
-          onSave={async (body) => {
-            const result = await act(() => ops("fulfillment/goods", { method: "POST", body }));
-            if (result) setAdding(false);
-          }}
+    <section className="fulfill-block">
+      <SectionHead
+        level={3}
+        title="Patrons"
+        help="Patrons enter their own shipping address on the site after signing in with Patreon. It cannot be edited here."
+      >
+        <Segmented
+          label="Patrons to show"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "receiving", label: "Receiving", count: view.receiving.length },
+            { value: "missing", label: "No address", count: noAddress.length },
+            { value: "all", label: "All", count: data.patrons.length },
+          ]}
         />
-      ) : null}
-      {goods.length ? (
+        <ActionButton
+          busyLabel="Syncing…"
+          title="Fetch the current patrons and pledges from Patreon"
+          onClick={() =>
+            run(() => ops("fulfillment/sync", { method: "POST" }), {
+              ok: (result) => `Synced ${plural(result?.count ?? 0, "patron")} from Patreon.`,
+            })
+          }
+        >
+          Sync from Patreon
+        </ActionButton>
+      </SectionHead>
+      {shown.length ? (
         <div className="ops__scroll">
           <table className="ops__table">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Price</th>
-              <th>Stock</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {goods.map((good) => (
-              <GoodRow
-                key={good.id}
-                good={good}
-                onSave={(body) => act(() => ops(`fulfillment/goods/${good.id}`, { method: "PATCH", body }))}
-                onDelete={() => act(() => ops(`fulfillment/goods/${good.id}`, { method: "DELETE" }))}
-              />
-            ))}
-          </tbody>
-        </table>
+            <thead>
+              <tr>
+                <th>Patron</th>
+                <th>Pledge</th>
+                <th>Status</th>
+                <th>Receives</th>
+                <th>Address</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((patron) => {
+                const items = receiving.get(patron.patreon_id);
+                return (
+                  <tr key={patron.patreon_id}>
+                    <td title={patron.email || undefined}>{patron.name || patron.email}</td>
+                    <td>{money(patron.amount_cents)}</td>
+                    <td>{PATRON_STATUS[patron.patron_status] || "Not a patron"}</td>
+                    <td>{items ? items.join(", ") : ""}</td>
+                    <td>
+                      {patron.line1 ? (
+                        [patron.city, patron.region].filter(Boolean).join(", ") || "On file"
+                      ) : (
+                        <Status tone={items ? "bad" : "off"}>Missing</Status>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       ) : (
-        <p className="ops__muted">None.</p>
+        <Empty>None.</Empty>
       )}
     </section>
   );
 }
 
-function HeadquartersForm({ settings, onSave }) {
-  const [hq, setHq] = useState({ ...blankHq, ...settings.hq });
-  const [extraCopies, setExtraCopies] = useState(settings.extraCopies ?? "");
-  const set = (key) => (event) => setHq((current) => ({ ...current, [key]: event.target.value }));
+function Parcels({ view }) {
+  const [filter, setFilter] = useState("all");
+  const shipped = view.shipments.filter((row) => row.fulfilled);
+  const waiting = view.shipments.filter((row) => !row.fulfilled);
+  const shown = filter === "waiting" ? waiting : filter === "shipped" ? shipped : view.shipments;
   return (
-    <form
-      className="ops__form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSave({ extraCopies: extraCopies === "" ? null : Number(extraCopies), passphrase: "", hq });
-      }}
-    >
-      <div className="fulfill-address">
-        <Field label="Recipient" value={hq.recipient} onChange={set("recipient")} />
-        <Field label="Street" value={hq.line1} onChange={set("line1")} />
-        <Field label="Apt, suite" value={hq.line2} onChange={set("line2")} />
-        <div className="field-row field-row--2">
-          <Field label="City" value={hq.city} onChange={set("city")} />
-          <Field label="State" value={hq.region} onChange={set("region")} />
-        </div>
-        <div className="field-row field-row--2">
-          <Field label="ZIP" value={hq.postalCode} onChange={set("postalCode")} />
-          <Field label="Country" value={hq.country} onChange={set("country")} />
-        </div>
-        <Field label="Phone" value={hq.phone} onChange={set("phone")} />
-      </div>
-      <div className="field fulfill-count">
-        <label>Extra copies</label>
-        <input type="number" min="0" value={extraCopies} onChange={(event) => setExtraCopies(event.target.value)} />
-      </div>
-      <button type="submit" className="btn btn--quiet">
-        Save address
-      </button>
-    </form>
-  );
-}
-
-function PassphraseForm({ settings, onSave }) {
-  const [passphrase, setPassphrase] = useState("");
-  return (
-    <form
-      className="ops__form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!passphrase.trim()) return;
-        onSave({ extraCopies: settings.extraCopies, passphrase, hq: { ...blankHq, ...settings.hq } });
-        setPassphrase("");
-      }}
-    >
-      {settings.hasPass ? <p className="ops__muted">Saving signs the partner out.</p> : null}
-      <div className="field fulfill-phrase">
-        <label>Passphrase</label>
-        <input
-          type="password"
-          value={passphrase}
-          onChange={(event) => setPassphrase(event.target.value)}
-          autoComplete="new-password"
+    <section className="fulfill-block">
+      <SectionHead
+        level={3}
+        title="Parcels"
+        help="One per receiving patron, plus one for headquarters when there are extra copies. The print partner adds tracking and marks them shipped."
+      >
+        <Segmented
+          label="Parcels to show"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "all", label: "All", count: view.shipments.length },
+            { value: "waiting", label: "To ship", count: waiting.length },
+            { value: "shipped", label: "Shipped", count: shipped.length },
+          ]}
         />
-      </div>
-      <button type="submit" className="btn btn--quiet" disabled={!passphrase.trim()}>
-        Save
-      </button>
-    </form>
-  );
-}
-
-function GoodForm({ onSave, onCancel, initial }) {
-  const [form, setForm] = useState({
-    name: initial?.name || "",
-    price: dollarInput(initial?.price_cents ?? ""),
-    kind: initial?.kind || "print",
-    kind_note: initial?.kind_note || "",
-    in_stock: initial ? Boolean(initial.in_stock) : true,
-  });
-  const set = (key) => (event) => {
-    const value = event.target.type === "checkbox" ? event.target.checked : event.target.value;
-    setForm((current) => ({ ...current, [key]: value }));
-  };
-  return (
-    <form
-      className="ops__form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const price_cents = centsFromDollars(form.price);
-        if (price_cents == null) return;
-        onSave({
-          name: form.name,
-          kind: form.kind,
-          kind_note: form.kind_note,
-          price_cents,
-          in_stock: Boolean(form.in_stock),
-        });
-        if (!initial) setForm({ name: "", price: "", kind: "print", kind_note: "", in_stock: true });
-      }}
-    >
-      <div className="field-row">
-        <Field label="Name" value={form.name} onChange={set("name")} required />
-        <div className="field">
-          <label>Price</label>
-          <input type="number" min="0" step="0.01" inputMode="decimal" value={form.price} onChange={set("price")} required />
+      </SectionHead>
+      {shown.length ? (
+        <div className="ops__scroll">
+          <table className="ops__table">
+            <thead>
+              <tr>
+                <th>Recipient</th>
+                <th>Address</th>
+                <th>Tracking</th>
+                <th>Shipped</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    {row.recipient}
+                    {row.dest === "hq" ? <span className="chip">Headquarters</span> : null}
+                  </td>
+                  <td>{row.line1 ? addressLine(row) : <Status tone="bad">Missing</Status>}</td>
+                  <td>{row.tracking}</td>
+                  <td>{row.fulfilled ? <Status tone="ok">{row.fulfilled_at ? dayLabel(row.fulfilled_at) : "Yes"}</Status> : null}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <div className="field">
-          <label>Type</label>
-          <select value={form.kind} onChange={set("kind")}>
-            {KINDS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {form.kind === "other" ? <Field label="Label" value={form.kind_note} onChange={set("kind_note")} required /> : null}
-        <label className="ops__check fulfill-stock">
-          <input type="checkbox" checked={Boolean(form.in_stock)} onChange={set("in_stock")} />
-          In stock
-        </label>
-      </div>
-      <div className="ops__actions">
-        <button type="submit" className="ops__btn">
-          Save
-        </button>
-        {onCancel ? (
-          <button type="button" className="ops__btn" onClick={onCancel}>
-            Cancel
-          </button>
-        ) : null}
-      </div>
-    </form>
+      ) : (
+        <Empty>None.</Empty>
+      )}
+    </section>
   );
 }
 
-function GoodRow({ good, onSave, onDelete }) {
-  const [editing, setEditing] = useState(false);
-  if (editing) {
-    return (
-      <tr>
-        <td colSpan={5}>
-          <GoodForm
-            initial={{
-              name: good.name,
-              price_cents: good.price_cents,
-              kind: good.kind,
-              kind_note: good.kind_note,
-              in_stock: Boolean(good.in_stock),
-            }}
-            onCancel={() => setEditing(false)}
-            onSave={async (body) => {
-              const result = await onSave(body);
-              if (result) setEditing(false);
-            }}
-          />
-        </td>
-      </tr>
-    );
-  }
+function Invoices({ view, send, ask }) {
+  const invoices = [...view.invoices].sort((a, b) => Number(Boolean(a.paid_at)) - Number(Boolean(b.paid_at)));
+  const pay = (invoice) =>
+    ask({
+      title: `Mark the ${money(invoice.amount_cents)} invoice as paid?`,
+      body: "The print partner sees it as paid. It cannot be switched back.",
+      label: "Mark paid",
+      danger: false,
+      action: () => send(() => ops(`fulfillment/invoices/${invoice.id}/paid`, { method: "POST" })),
+      done: `${money(invoice.amount_cents)} invoice marked paid.`,
+    });
   return (
-    <tr>
-      <td>{good.name}</td>
-      <td>{kindLabel(good.kind, good.kind_note)}</td>
-      <td>{money(good.price_cents)}</td>
-      <td>{good.in_stock ? "In stock" : "Out"}</td>
-      <td>
-        <button type="button" className="ops__btn" onClick={() => setEditing(true)}>
-          Edit
-        </button>
-        <button type="button" className="ops__btn ops__btn--danger" onClick={onDelete}>
-          Delete
-        </button>
-      </td>
-    </tr>
+    <section className="fulfill-block">
+      <SectionHead level={3} title="Invoices" count={invoices.length} help="Uploaded by the print partner from their desk." />
+      {invoices.length ? (
+        <div className="ops__scroll">
+          <table className="ops__table">
+            <thead>
+              <tr>
+                <th>Amount</th>
+                <th>Note</th>
+                <th>File</th>
+                <th>Paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoices.map((invoice) => (
+                <tr key={invoice.id}>
+                  <td>{money(invoice.amount_cents)}</td>
+                  <td>{invoice.note}</td>
+                  <td>
+                    <a href={`/api/ops/fulfillment/invoices/${invoice.id}/file`} title="Download">
+                      {invoice.filename || "Download"}
+                    </a>
+                  </td>
+                  <td>
+                    {invoice.paid_at ? (
+                      <Status tone="ok">{dayLabel(invoice.paid_at)}</Status>
+                    ) : (
+                      <button type="button" className="ops__btn ops__btn--small" onClick={() => pay(invoice)}>
+                        Mark paid
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Empty>None.</Empty>
+      )}
+    </section>
   );
 }
 
-function LineForm({ goods, tiers, spareDefault, onSave, onCancel, initial }) {
-  const [form, setForm] = useState(() => {
-    const start = initial || {
-      print_good_id: goods[0]?.id || "",
-      price_cents: goods[0]?.price_cents ?? "",
-      count: "",
-      extra_copies: "",
-      amounts: [],
-      inclusive: 0,
-    };
-    return { ...start, price: dollarInput(start.price_cents) };
-  });
+function HeadquartersForm({ settings, run }) {
+  const start = { ...blankHq, ...settings.hq, extraCopies: settings.extraCopies == null ? "" : String(settings.extraCopies) };
+  const [form, setForm] = useState(start);
+  const [saving, setSaving] = useState(false);
+  const dirty = JSON.stringify(form) !== JSON.stringify(start);
+  const badExtra = countError(form.extraCopies);
+  useDirty(dirty, "Headquarters");
   const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+  const text = (key, label) => (
+    <Field label={label}>{(props) => <input {...props} value={form[key]} onChange={set(key)} autoComplete="off" />}</Field>
+  );
+
+  const save = async (event) => {
+    event.preventDefault();
+    if (badExtra) return;
+    setSaving(true);
+    const { extraCopies, ...hq } = form;
+    await run(
+      () =>
+        ops("fulfillment/settings", {
+          method: "PUT",
+          body: { extraCopies: extraCopies === "" ? null : Number(extraCopies), passphrase: "", hq },
+        }),
+      { ok: "Headquarters saved." }
+    );
+    setSaving(false);
+  };
+
   return (
-    <form
-      className="ops__form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const price_cents = centsFromDollars(form.price);
-        if (price_cents == null) return;
-        onSave({
-          print_good_id: form.print_good_id,
-          amounts: form.amounts,
-          inclusive: form.inclusive ? 1 : 0,
-          price_cents,
-          count: form.count === "" ? null : Number(form.count),
-          extra_copies: form.extra_copies === "" ? null : Number(form.extra_copies),
-        });
-      }}
-    >
-      <div className="field-row">
-        <div className="field">
-          <label>Item</label>
-          <select
-            value={form.print_good_id}
-            onChange={(event) => {
-              const good = goods.find((item) => item.id === event.target.value);
-              setForm((current) => ({
-                ...current,
-                print_good_id: event.target.value,
-                price: good ? dollarInput(good.price_cents) : current.price,
-              }));
-            }}
-          >
-            {goods.map((good) => (
-              <option key={good.id} value={good.id}>
-                {good.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="field">
-          <label>Price</label>
-          <input type="number" min="0" step="0.01" inputMode="decimal" value={form.price} onChange={set("price")} required />
-        </div>
-        <div className="field">
-          <label>Quantity</label>
-          <input type="number" min="0" value={form.count} onChange={set("count")} />
-        </div>
-        <div className="field">
-          <label>Extra copies</label>
-          <input type="number" min="0" value={form.extra_copies} onChange={set("extra_copies")} />
-        </div>
+    <form className="ops__form fulfill-address" onSubmit={save}>
+      {text("recipient", "Recipient")}
+      {text("line1", "Street")}
+      {text("line2", "Apt, suite")}
+      <div className="field-row field-row--2">
+        {text("city", "City")}
+        {text("region", "State")}
       </div>
-      <div className="ops__actions">
-        {pledgeChoices(tiers, form.amounts).map((amount) => (
-          <label key={amount} className="ops__check">
-            <input
-              type="checkbox"
-              checked={form.amounts.includes(amount)}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  amounts: event.target.checked
-                    ? [...current.amounts, amount]
-                    : current.amounts.filter((value) => value !== amount),
-                }))
-              }
-            />
-            {pledgeLabel(tiers, amount)}
-          </label>
-        ))}
-        <label className="ops__check">
-          <input
-            type="checkbox"
-            checked={Boolean(form.inclusive)}
-            onChange={(event) => setForm((current) => ({ ...current, inclusive: event.target.checked ? 1 : 0 }))}
-          />
-          Higher pledges
-        </label>
+      <div className="field-row field-row--2">
+        {text("postalCode", "ZIP")}
+        {text("country", "Country")}
       </div>
-      {unfulfilled(form.count, form.extra_copies, form.amounts, spareDefault) ? (
-        <p className="fulfill-warn">warning this item is not being fulfilled</p>
-      ) : null}
-      <div className="ops__actions">
-        <button type="submit" className="ops__btn">
-          Save
-        </button>
-        {onCancel ? (
-          <button type="button" className="ops__btn" onClick={onCancel}>
-            Cancel
-          </button>
-        ) : null}
+      <div className="field-row field-row--2">
+        {text("phone", "Phone")}
+        <Field
+          label="Extra copies"
+          error={badExtra}
+          help="Spare copies of each item sent to this address, unless an order item sets its own number. Blank means none."
+        >
+          {(props) => <input {...props} type="number" min="0" step="1" placeholder="0" value={form.extraCopies} onChange={set("extraCopies")} />}
+        </Field>
       </div>
+      <SaveBar dirty={dirty} saving={saving} onDiscard={() => setForm(start)} blocked={badExtra ? "Fix the extra copies" : null} />
     </form>
   );
 }
 
-function Field({ label, value, onChange, required }) {
+function PassphraseForm({ settings, send, ask }) {
+  const toast = useToast();
+  const [passphrase, setPassphrase] = useState("");
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const url = `${window.location.origin}${siteHref(PARTNER_PATH)}`;
+
+  const store = () =>
+    send(() =>
+      ops("fulfillment/settings", {
+        method: "PUT",
+        body: { extraCopies: settings.extraCopies, passphrase: passphrase.trim(), hq: { ...blankHq, ...settings.hq } },
+      })
+    ).then(() => setPassphrase(""));
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.ok("Link copied.");
+    } catch {
+      toast.error("Copying is blocked in this browser. Select the link and copy it by hand.");
+    }
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!passphrase.trim()) return;
+    if (settings.hasPass) {
+      ask({
+        title: "Replace the partner passphrase?",
+        body: "The old one stops working and the partner is signed out right away. It is never shown again after saving, so send them the new one yourself.",
+        label: "Replace",
+        action: store,
+        done: "Passphrase replaced. The partner was signed out.",
+      });
+      return;
+    }
+    setSaving(true);
+    try {
+      await store();
+      toast.ok("Passphrase saved.");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="field">
-      <label>{label}</label>
-      <input value={value} onChange={onChange} required={required} />
-    </div>
+    <form className="ops__form fulfill-address" onSubmit={submit}>
+      <Field
+        label="Partner link"
+        help="The page looks like a “404 Not Found” error on purpose. The partner types the passphrase into the box on it and presses Enter. A sign-in lasts 12 hours."
+      >
+        {(props) => (
+          <span className="joined">
+            <input {...props} readOnly value={url} onFocus={(event) => event.target.select()} />
+            <button type="button" className="ops__btn" onClick={copy}>
+              Copy
+            </button>
+          </span>
+        )}
+      </Field>
+      <Field
+        label={settings.hasPass ? "New passphrase" : "Passphrase"}
+        help={settings.hasPass ? "The current passphrase cannot be shown. Saving a new one signs the partner out." : undefined}
+      >
+        {(props) => (
+          <span className="joined">
+            <input
+              {...props}
+              type={show ? "text" : "password"}
+              value={passphrase}
+              onChange={(event) => setPassphrase(event.target.value)}
+              autoComplete="new-password"
+              maxLength={200}
+            />
+            <button type="button" className="ops__btn" aria-pressed={show} onClick={() => setShow((current) => !current)}>
+              {show ? "Hide" : "Show"}
+            </button>
+          </span>
+        )}
+      </Field>
+      <div className="ops__actions">
+        <button type="submit" className="btn btn--small" disabled={saving || !passphrase.trim()}>
+          {saving ? "Saving…" : settings.hasPass ? "Replace passphrase" : "Save passphrase"}
+        </button>
+      </div>
+    </form>
   );
 }

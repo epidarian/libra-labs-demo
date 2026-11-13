@@ -168,6 +168,7 @@ function galleryPayload() {
     works: data.works,
     tiers: [],
     patreon: { configured: false, connected: false },
+    limits: { file: 100 * 1024 * 1024, thumbSource: 20 * 1024 * 1024 },
   };
 }
 
@@ -417,7 +418,7 @@ export function demoOps(path, { method = "GET", body } = {}) {
     work.tags = work.tags.filter((tag) => tag !== decodeURIComponent(extra));
     return { work };
   }
-  if (resource === "gallery" && id && action === "files") {
+  if (resource === "gallery" && id && (action === "files" || action === "thumb")) {
     fail("This demo does not store files.");
   }
 
@@ -437,6 +438,7 @@ export function demoOps(path, { method = "GET", body } = {}) {
       shipments: [],
       invoices: [],
       edits: [],
+      orderLines: [],
     };
   }
 

@@ -1,166 +1,216 @@
 import { useId, useState } from "react";
 import { dateRange } from "../dates.js";
 import { ops, useOps } from "./api.js";
+import { Modal, useConfirm, useDiscardGuard } from "./Modal.jsx";
 import { Notice } from "./Notice.jsx";
+import { Empty, Field, SectionHead, Segmented, Status, useToast } from "./ui.jsx";
 
 const EMPTY = { name: "", place: "", starts_on: "", ends_on: "", table_label: "", rating: "sfw" };
+const SITES = [
+  { value: "sfw", label: "SFW" },
+  { value: "nsfw", label: "NSFW" },
+];
+// The public site hides a convention the day after it ends, by UTC date.
 const today = () => new Date().toISOString().slice(0, 10);
+const lastDay = (item) => item.ends_on || item.starts_on || "";
+const hasEnded = (item, now) => Boolean(lastDay(item)) && lastDay(item) < now;
 
-function ConventionForm({ initial, onSave, onCancel }) {
-  const id = useId();
-  const [form, setForm] = useState(initial);
+function formOf(item) {
+  return { ...EMPTY, ...item, starts_on: item.starts_on ?? "", ends_on: item.ends_on ?? "" };
+}
+
+function ConventionDialog({ initial, send, onClose }) {
+  const formId = useId();
+  const toast = useToast();
+  const start = formOf(initial);
+  const [form, setForm] = useState(start);
   const [saving, setSaving] = useState(false);
-  const set = (key) => (event) => setForm((f) => ({ ...f, [key]: event.target.value }));
+  const [error, setError] = useState(null);
+  const editing = Boolean(initial.id);
+  const dirty = JSON.stringify(form) !== JSON.stringify(start);
+  const [requestClose, discardDialog] = useDiscardGuard(dirty, onClose);
+  const set = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
+
+  const endsError =
+    form.ends_on && !form.starts_on
+      ? "Needs a first day too"
+      : form.ends_on && form.ends_on < form.starts_on
+        ? "Before the first day"
+        : null;
 
   const submit = async (event) => {
     event.preventDefault();
+    if (endsError) return;
     setSaving(true);
-    const ok = await onSave(form);
-    setSaving(false);
-    if (ok && !initial.id) setForm(EMPTY);
+    setError(null);
+    try {
+      await send(() =>
+        ops(editing ? `conventions/${initial.id}` : "conventions", { method: editing ? "PUT" : "POST", body: form })
+      );
+      toast.ok(editing ? `Saved ${form.name.trim()}.` : `Added ${form.name.trim()}.`);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
   };
 
   return (
-    <form className="ops__form" onSubmit={submit}>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor={`${id}-name`}>Name</label>
-          <input id={`${id}-name`} value={form.name} onChange={set("name")} required />
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-place`}>City / venue</label>
-          <input id={`${id}-place`} value={form.place} onChange={set("place")} />
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-rating`}>Shown on</label>
-          <select id={`${id}-rating`} value={form.rating} onChange={set("rating")}>
-            <option value="sfw">SFW site</option>
-            <option value="nsfw">NSFW site</option>
-          </select>
-        </div>
-      </div>
-      <div className="field-row">
-        <div className="field">
-          <label htmlFor={`${id}-start`}>Starts</label>
-          <input id={`${id}-start`} type="date" value={form.starts_on} onChange={set("starts_on")} />
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-end`}>Ends</label>
-          <input
-            id={`${id}-end`}
-            type="date"
-            value={form.ends_on}
-            min={form.starts_on || undefined}
-            onChange={set("ends_on")}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor={`${id}-table`}>Table</label>
-          <input
-            id={`${id}-table`}
-            value={form.table_label}
-            onChange={set("table_label")}
-            placeholder="Table TBA"
-          />
-        </div>
-      </div>
-      <div className="ops__actions">
-        <button type="submit" className="btn" disabled={saving}>
-          {initial.id ? "Save" : "Add convention"}
-        </button>
-        {onCancel ? (
-          <button type="button" className="btn btn--quiet" onClick={onCancel}>
+    <Modal
+      title={editing ? initial.name : "Add a convention"}
+      onClose={requestClose}
+      busy={saving}
+      footer={
+        <>
+          {hasEnded(form, today()) ? <Status tone="warn">Already over, so the site will not show it</Status> : null}
+          <span className="modal__spacer" />
+          <button type="button" className="btn btn--quiet" onClick={() => requestClose(false)} disabled={saving}>
             Cancel
           </button>
+          <button type="submit" form={formId} className="btn" disabled={saving || !form.name.trim() || Boolean(endsError)}>
+            {saving ? "Saving…" : editing ? "Save" : "Add"}
+          </button>
+        </>
+      }
+    >
+      <form id={formId} className="ops__form" onSubmit={submit}>
+        {error ? (
+          <p className="ops__error" role="alert">
+            {error}
+          </p>
         ) : null}
-      </div>
-    </form>
+        <div className="field-row field-row--2">
+          <Field label="Name">
+            {(props) => <input {...props} value={form.name} onChange={set("name")} maxLength={120} required data-autofocus />}
+          </Field>
+          <Field label="City or venue">
+            {(props) => <input {...props} value={form.place} onChange={set("place")} maxLength={120} />}
+          </Field>
+        </div>
+        <div className="field-row">
+          <Field label="First day" help="Leave both days blank to show “Dates TBA”.">
+            {(props) => <input {...props} type="date" value={form.starts_on} onChange={set("starts_on")} />}
+          </Field>
+          <Field label="Last day" error={endsError} help="Leave blank for a one-day event.">
+            {(props) => (
+              <input {...props} type="date" value={form.ends_on} min={form.starts_on || undefined} onChange={set("ends_on")} />
+            )}
+          </Field>
+          <Field label="Table">
+            {(props) => (
+              <input {...props} value={form.table_label} onChange={set("table_label")} maxLength={60} placeholder="Table TBA" />
+            )}
+          </Field>
+        </div>
+        <div className="field">
+          <span className="field__label">Listed on</span>
+          <Segmented
+            label="Site that lists it"
+            value={form.rating}
+            onChange={(rating) => setForm((current) => ({ ...current, rating }))}
+            options={SITES}
+          />
+        </div>
+      </form>
+      {discardDialog}
+    </Modal>
   );
 }
 
 export function ConventionsTab() {
-  const { data, error, run } = useOps("conventions");
+  const { data, error, send } = useOps("conventions");
   const [editing, setEditing] = useState(null);
-  const items = data?.conventions ?? [];
+  const [site, setSite] = useState("all");
+  const [ask, confirmDialog] = useConfirm();
   const now = today();
+  const items = data?.conventions ?? [];
+  const shown = site === "all" ? items : items.filter((item) => item.rating === site);
+  // Upcoming first, in date order; ended ones sink to the bottom.
+  const sorted = [...shown.filter((item) => !hasEnded(item, now)), ...shown.filter((item) => hasEnded(item, now))];
 
-  const save = async (form) => {
-    const path = form.id ? `conventions/${form.id}` : "conventions";
-    const result = await run(() =>
-      ops(path, { method: form.id ? "PUT" : "POST", body: form })
-    );
-    if (result && form.id) setEditing(null);
-    return Boolean(result);
-  };
-
-  const remove = (item) => {
-    if (!window.confirm(`Delete ${item.name}?`)) return;
-    run(() => ops(`conventions/${item.id}`, { method: "DELETE" }));
-  };
+  const remove = (item) =>
+    ask({
+      title: `Delete ${item.name}?`,
+      body: hasEnded(item, now)
+        ? "It has ended and is already hidden from the site."
+        : `It comes off the ${item.rating.toUpperCase()} site's schedule right away.`,
+      label: "Delete",
+      action: () => send(() => ops(`conventions/${item.id}`, { method: "DELETE" })),
+      done: `Deleted ${item.name}.`,
+    });
 
   return (
-    <>
-      <section className="panel ops__section">
-        <h2 className="panel__title">Schedule a convention</h2>
-        <ConventionForm initial={EMPTY} onSave={save} />
-      </section>
-
-      <section className="panel ops__section">
-        <h2 className="panel__title">Scheduled ({items.length})</h2>
-        <p className="ops__muted">
-          Each convention appears only on the site matching its tag. Conventions that have ended
-          are hidden.
-        </p>
-        <Notice error={error} loading={!data} />
-        {data && items.length === 0 ? <p className="ops__muted">No conventions.</p> : null}
-        <div className="ops__list">
-          {items.map((item) => {
-            const past = (item.ends_on || item.starts_on || "9999") < now;
-            if (editing === item.id) {
-              return (
-                <div className="ops__request" key={item.id}>
-                  <ConventionForm
-                    initial={{
-                      ...EMPTY,
-                      ...item,
-                      starts_on: item.starts_on ?? "",
-                      ends_on: item.ends_on ?? "",
-                    }}
-                    onSave={save}
-                    onCancel={() => setEditing(null)}
-                  />
-                </div>
-              );
-            }
-            return (
-              <article className="ops__request" key={item.id} data-state={past ? "past" : "live"}>
-                <header className="ops__request-head">
-                  <div>
-                    <h3>{item.name}</h3>
-                    <span>{item.place || "-"}</span>
-                  </div>
-                  <span className="ops__tag">{item.rating.toUpperCase()}</span>
-                  {past ? <span className="ops__tag">Past</span> : null}
-                  <span>{dateRange(item.starts_on, item.ends_on)}</span>
-                </header>
-                <footer className="ops__actions">
-                  <span className="ops__muted">{item.table_label || "Table TBA"}</span>
-                  <button type="button" className="ops__btn" onClick={() => setEditing(item.id)}>
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="ops__btn ops__btn--danger"
-                    onClick={() => remove(item)}
-                  >
-                    Delete
-                  </button>
-                </footer>
-              </article>
-            );
-          })}
+    <section className="panel ops__section">
+      <SectionHead
+        title="Schedule"
+        count={data ? shown.length : null}
+        help="Each convention shows on one site and drops off by itself the day after it ends."
+      >
+        <Segmented
+          label="Site to show"
+          value={site}
+          onChange={setSite}
+          options={[{ value: "all", label: "All" }, ...SITES]}
+        />
+        <button type="button" className="btn btn--small" onClick={() => setEditing(EMPTY)}>
+          Add convention
+        </button>
+      </SectionHead>
+      <Notice error={error} loading={!data && !error} />
+      {data && !sorted.length ? <Empty>No conventions.</Empty> : null}
+      {sorted.length ? (
+        <div className="ops__scroll">
+          <table className="ops__table">
+            <thead>
+              <tr>
+                <th>Convention</th>
+                <th>Where</th>
+                <th>Dates</th>
+                <th>Table</th>
+                <th>Site</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((item) => {
+                const ended = hasEnded(item, now);
+                return (
+                  <tr key={item.id} data-faded={ended ? "true" : undefined}>
+                    <td>
+                      <strong>{item.name}</strong>
+                    </td>
+                    <td>{item.place}</td>
+                    <td>
+                      <span className="ops__pair">
+                        {dateRange(item.starts_on, item.ends_on)}
+                        {ended ? (
+                          <Status tone="off" title="Hidden from the site">
+                            Ended
+                          </Status>
+                        ) : null}
+                      </span>
+                    </td>
+                    <td>{item.table_label || "TBA"}</td>
+                    <td>{item.rating.toUpperCase()}</td>
+                    <td className="ops__rowtools">
+                      <button type="button" className="ops__btn ops__btn--small" onClick={() => setEditing(item)}>
+                        Edit
+                      </button>
+                      <button type="button" className="ops__btn ops__btn--small ops__btn--danger" onClick={() => remove(item)}>
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-      </section>
-    </>
+      ) : null}
+      {editing ? (
+        <ConventionDialog key={editing.id || "new"} initial={editing} send={send} onClose={() => setEditing(null)} />
+      ) : null}
+      {confirmDialog}
+    </section>
   );
 }

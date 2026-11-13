@@ -7,15 +7,14 @@ const SiteContentContext = createContext(null);
 export function SiteContentProvider({ children }) {
   const { rating } = useSiteMode();
   const { profile } = usePatreon();
-  const [content, setContent] = useState(null);
+  const [bundle, setBundle] = useState({ rating: null, content: null });
 
   useEffect(() => {
     let cancel = false;
-    setContent(null);
     fetch(`/api/content?rating=${rating}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((next) => {
-        if (!cancel && next) setContent(next);
+        if (!cancel && next) setBundle({ rating, content: next });
       })
       .catch(() => {});
     return () => {
@@ -23,6 +22,7 @@ export function SiteContentProvider({ children }) {
     };
   }, [rating, profile?.email]);
 
+  const content = bundle.rating === rating ? bundle.content : null;
   return <SiteContentContext.Provider value={content}>{children}</SiteContentContext.Provider>;
 }
 

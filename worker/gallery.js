@@ -272,7 +272,12 @@ async function listGallery(env) {
   for (const work of results) {
     works.push(shapeWork(work, await filesFor(env, work.id), tagged.get(work.id) || []));
   }
-  return json({ works, tiers: await listTiers(env), patreon: await campaignStatus(env) });
+  return json({
+    works,
+    tiers: await listTiers(env),
+    patreon: await campaignStatus(env),
+    limits: { file: MAX_BYTES, thumbSource: THUMB_SOURCE_MAX },
+  });
 }
 
 async function createGallery(env, body) {
@@ -374,23 +379,17 @@ async function writeSlot(env, work, slot, name, body, contentType, flags) {
       : await env.DB.prepare("SELECT id, r2_key FROM gallery_files WHERE work_id = ? AND slot = ?")
           .bind(work.id, slot)
           .first();
+  const insert = env.DB.prepare(
+    `INSERT INTO gallery_files
+     (id, work_id, slot, name, r2_key, content_type, bytes, viewable, downloadable, patrons_only)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, work.id, slot, name, key, contentType, bytes, flags.viewable, flags.downloadable, flags.patrons_only);
   if (previous) {
-    await env.DB.prepare(
-      `UPDATE gallery_files
-       SET name = ?, r2_key = ?, content_type = ?, bytes = ?, viewable = ?, downloadable = ?, patrons_only = ?
-       WHERE id = ?`
-    )
-      .bind(name, key, contentType, bytes, flags.viewable, flags.downloadable, flags.patrons_only, previous.id)
-      .run();
+    // A replaced file gets a new id so public URLs, which carry the id, stop serving the cached old one.
+    await env.DB.batch([env.DB.prepare("DELETE FROM gallery_files WHERE id = ?").bind(previous.id), insert]);
     if (previous.r2_key !== key) await env.GALLERY.delete(previous.r2_key);
   } else {
-    await env.DB.prepare(
-      `INSERT INTO gallery_files
-       (id, work_id, slot, name, r2_key, content_type, bytes, viewable, downloadable, patrons_only)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(id, work.id, slot, name, key, contentType, bytes, flags.viewable, flags.downloadable, flags.patrons_only)
-      .run();
+    await insert.run();
   }
   return { key, bytes };
 }
@@ -418,6 +417,36 @@ async function thumbnailFrom(env, bytes) {
   }
 }
 
+async function thumbFlagsFor(env, workId) {
+  const existing = await env.DB.prepare(
+    "SELECT viewable, downloadable, patrons_only FROM gallery_files WHERE work_id = ? AND slot = 'thumb'"
+  )
+    .bind(workId)
+    .first();
+  return existing
+    ? { viewable: existing.viewable, downloadable: existing.downloadable, patrons_only: existing.patrons_only }
+    : { viewable: 1, downloadable: 0, patrons_only: 0 };
+}
+
+async function uploadFlags(env, workId, slot, params) {
+  const base =
+    slot === "thumb"
+      ? await thumbFlagsFor(env, workId)
+      : slot === "extra"
+        ? { viewable: 0, downloadable: 1, patrons_only: 0 }
+        : { viewable: 1, downloadable: 0, patrons_only: 0 };
+  const flag = (key, fallback) => {
+    const value = params.get(key);
+    if (value === null) return fallback;
+    return bit(value === "1" || value === "true");
+  };
+  return {
+    viewable: flag("viewable", base.viewable),
+    downloadable: flag("downloadable", base.downloadable),
+    patrons_only: flag("patrons_only", base.patrons_only),
+  };
+}
+
 async function uploadGalleryFile(request, env, workId, url) {
   if (!env.GALLERY) return json({ error: "Gallery storage is not configured." }, 503);
   const work = await env.DB.prepare("SELECT id, slug FROM gallery_works WHERE id = ?").bind(workId).first();
@@ -425,7 +454,6 @@ async function uploadGalleryFile(request, env, workId, url) {
 
   const params = url.searchParams;
   const slot = params.get("slot");
-  if (slot === "thumb") return json({ error: "The thumbnail is made from the picture." }, 400);
   if (!SLOTS.includes(slot)) return json({ error: "Unknown file slot." }, 400);
   const name = safeName(params.get("name"));
   const ext = extOf(name);
@@ -433,28 +461,32 @@ async function uploadGalleryFile(request, env, workId, url) {
   if (!allowed.has(ext)) {
     return json({ error: slot === "extra" ? "That file type is not allowed." : "Use a jpg, png, webp, gif, or avif." }, 400);
   }
+  const limit = slot === "thumb" ? THUMB_SOURCE_MAX : MAX_BYTES;
+  const tooBig = slot === "thumb" ? "Thumbnails must be under 20 MB." : "File is larger than 100 MB.";
   const declared = request.headers.get("content-length");
   const length = declared === null ? null : Number(declared);
   if (length === 0 || (length !== null && !Number.isFinite(length))) {
     return json({ error: "Empty upload." }, 400);
   }
-  if (length !== null && length > MAX_BYTES) return json({ error: "File is larger than 100 MB." }, 413);
+  if (length !== null && length > limit) return json({ error: tooBig }, 413);
 
-  const defaults = slot === "extra" ? { viewable: false, downloadable: true } : { viewable: true, downloadable: false };
-  const flag = (key, fallback) => {
-    const value = params.get(key);
-    if (value === null) return fallback;
-    return value === "1" || value === "true";
-  };
-  const flags = {
-    viewable: bit(flag("viewable", defaults.viewable)),
-    downloadable: bit(flag("downloadable", defaults.downloadable)),
-    patrons_only: bit(flag("patrons_only", false)),
-  };
+  const flags = await uploadFlags(env, work.id, slot, params);
 
   const bytes = await request.arrayBuffer();
   if (!bytes.byteLength) return json({ error: "Empty upload." }, 400);
-  if (bytes.byteLength > MAX_BYTES) return json({ error: "File is larger than 100 MB." }, 413);
+  if (bytes.byteLength > limit) return json({ error: tooBig }, 413);
+
+  if (slot === "thumb") {
+    // Hand-made thumbnails are normalised to the same webp the automatic one uses when resizing is available.
+    const made = env.IMAGES ? await thumbnailFrom(env, bytes) : null;
+    const stored =
+      made && !made.error
+        ? await writeSlot(env, work, "thumb", "thumbnail.webp", made.body, "image/webp", flags)
+        : await writeSlot(env, work, "thumb", `thumbnail.${ext}`, bytes, TYPES[ext] || "application/octet-stream", flags);
+    if (stored.error) return json({ error: stored.error }, 400);
+    console.log(JSON.stringify({ message: "gallery thumbnail uploaded", workId, key: stored.key }));
+    return json({ work: await loadWork(env, workId) });
+  }
 
   let thumb = null;
   let warning = null;
@@ -469,22 +501,51 @@ async function uploadGalleryFile(request, env, workId, url) {
 
   if (slot === "full" && bytes.byteLength > THUMB_SOURCE_MAX) {
     await removeSlot(env, work.id, "thumb");
-    warning = "A thumbnail still needs to be generated.";
+    warning = "The picture is too large to make a thumbnail automatically. Open the thumbnail studio to make one.";
   }
 
   if (thumb) {
-    const existing = await env.DB.prepare(
-      "SELECT viewable, downloadable, patrons_only FROM gallery_files WHERE work_id = ? AND slot = 'thumb'"
-    )
-      .bind(work.id)
-      .first();
-    const thumbFlags = existing || { viewable: 1, downloadable: 0, patrons_only: 0 };
-    const written = await writeSlot(env, work, "thumb", "thumbnail.webp", thumb.body, "image/webp", thumbFlags);
+    const written = await writeSlot(
+      env,
+      work,
+      "thumb",
+      "thumbnail.webp",
+      thumb.body,
+      "image/webp",
+      await thumbFlagsFor(env, work.id)
+    );
     if (written.error) return json({ error: written.error }, 502);
   }
 
   console.log(JSON.stringify({ message: "gallery file stored", workId, slot, key: stored.key, warning }));
   return json({ work: await loadWork(env, workId), warning });
+}
+
+async function remakeThumbnail(env, workId) {
+  if (!env.GALLERY) return json({ error: "Gallery storage is not configured." }, 503);
+  const work = await env.DB.prepare("SELECT id, slug FROM gallery_works WHERE id = ?").bind(workId).first();
+  if (!work) return json({ error: "Picture not found." }, 404);
+  const full = await fileBySlot(env, work, "full");
+  if (!full) return json({ error: "Add the picture first." }, 400);
+  if (full.bytes > THUMB_SOURCE_MAX) {
+    return json({ error: "That picture is too large to resize here. Make the thumbnail in the studio instead." }, 400);
+  }
+  const object = await env.GALLERY.get(full.r2_key);
+  if (!object) return json({ error: "The picture file is missing from storage." }, 404);
+  const thumb = await thumbnailFrom(env, await object.arrayBuffer());
+  if (thumb.error) return json({ error: thumb.error }, 502);
+  const written = await writeSlot(
+    env,
+    work,
+    "thumb",
+    "thumbnail.webp",
+    thumb.body,
+    "image/webp",
+    await thumbFlagsFor(env, work.id)
+  );
+  if (written.error) return json({ error: written.error }, 502);
+  console.log(JSON.stringify({ message: "gallery thumbnail remade", workId }));
+  return json({ work: await loadWork(env, workId) });
 }
 
 async function removeSlot(env, workId, slot) {
@@ -628,6 +689,7 @@ export async function handleGalleryRoutes(env, request, url, method, id, action,
   if (id === "patreon" && !action && method === "DELETE") {
     return json(await disconnectCampaign(env));
   }
+  if (id && action === "thumb" && !extra && method === "POST") return remakeThumbnail(env, id);
   if (id && action === "files" && extra && method === "GET") return previewFile(request, env, id, extra);
   if (id && action === "files" && extra && method === "PATCH") return updateFile(env, id, extra, body);
   if (id && action === "files" && extra && method === "DELETE") return deleteFile(env, id, extra);

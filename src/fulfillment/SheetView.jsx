@@ -1,40 +1,44 @@
 import { useEffect, useState } from "react";
 import { onPartner } from "../ops/route.js";
-import { downloadSheet, money, openSheet } from "./sheets.js";
+import { ActionButton, useToast } from "../ops/ui.jsx";
+import { addressLine, downloadSheet, kindLabel, money, monthLabel, openSheet } from "./sheets.js";
 
 const SHEETS = [
-  ["order", "Order sheet"],
-  ["fulfillment", "Shipping sheet"],
+  ["order", "Order sheet", "Every item, how many copies, and the cost"],
+  ["fulfillment", "Shipping sheet", "Every parcel with its address and tracking"],
 ];
 
-export function SheetActions({ base, month, onError }) {
-  const [open, setOpen] = useState(false);
-  const run = (kind, format) => {
-    setOpen(false);
-    if (format === "html") {
-      openSheet(month, kind);
-      return;
-    }
-    downloadSheet(base, month, kind, format).catch((err) => onError?.(err.message));
-  };
+/** The two sheets for one month: open to print, or download as CSV or PDF. */
+export function SheetActions({ base, month }) {
+  const toast = useToast();
+  const download = (kind, format) =>
+    downloadSheet(base, month, kind, format).catch((err) => toast.error(err.message));
   return (
-    <details className="sheet-menu" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary className="ops__btn sheet-menu__toggle">Sheets</summary>
-      <div className="sheet-menu__panel">
-        {SHEETS.map(([kind, title]) => (
-          <div key={kind} className="sheet-menu__row">
-            <strong>{title}</strong>
-            <div className="ops__actions">
-              {["html", "csv", "pdf"].map((format) => (
-                <button key={format} type="button" className="ops__btn" onClick={() => run(kind, format)}>
-                  {format === "html" ? "View" : format.toUpperCase()}
-                </button>
-              ))}
-            </div>
+    <ul className="rows">
+      {SHEETS.map(([kind, title, about]) => (
+        <li key={kind} className="rows__row">
+          <strong className="rows__name" title={about}>
+            {title}
+          </strong>
+          <div className="ops__actions">
+            <button
+              type="button"
+              className="ops__btn ops__btn--small"
+              title="Opens in a new tab and starts printing"
+              onClick={() => openSheet(month, kind)}
+            >
+              Print
+            </button>
+            <ActionButton className="ops__btn ops__btn--small" busyLabel="…" title="Download as a spreadsheet" onClick={() => download(kind, "csv")}>
+              CSV
+            </ActionButton>
+            <ActionButton className="ops__btn ops__btn--small" busyLabel="…" title="Download as a PDF" onClick={() => download(kind, "pdf")}>
+              PDF
+            </ActionButton>
           </div>
-        ))}
-      </div>
-    </details>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -67,17 +71,16 @@ export function SheetView({ kind, month }) {
   }, [rows]);
 
   const title = kind === "order" ? "Goods to order" : "Fulfillment";
-  const [year, m] = String(month).split("-");
-  const when = year && m
-    ? new Date(Number(year), Number(m) - 1, 1).toLocaleString("en-US", { month: "long", year: "numeric" })
-    : month;
+  const list = rows || [];
+  const copies = list.reduce((sum, row) => sum + (row.patron_qty || 0) + (row.extra_qty || 0), 0);
+  const total = list.reduce((sum, row) => sum + ((row.patron_qty || 0) + (row.extra_qty || 0)) * row.price_cents, 0);
 
   return (
     <main className="sheet">
       <header className="sheet__head">
         <p className="sheet__who">Libra Labs LLC</p>
         <h1>{title}</h1>
-        <p className="sheet__when">{when}</p>
+        <p className="sheet__when">{monthLabel(month)}</p>
       </header>
       {error ? <p>{error}</p> : null}
       {kind === "order" ? (
@@ -93,10 +96,10 @@ export function SheetView({ kind, month }) {
             </tr>
           </thead>
           <tbody>
-            {(rows || []).map((row) => (
-              <tr key={`${row.name}-${row.kind}`}>
+            {list.map((row, index) => (
+              <tr key={row.item_id || `${row.name}-${row.kind}-${index}`}>
                 <td>{row.name}</td>
-                <td>{row.kind === "other" ? row.kind_note : row.kind}</td>
+                <td>{kindLabel(row.kind, row.kind_note)}</td>
                 <td>{row.patron_qty}</td>
                 <td>{row.extra_qty}</td>
                 <td>{money(row.price_cents)}</td>
@@ -104,6 +107,15 @@ export function SheetView({ kind, month }) {
               </tr>
             ))}
           </tbody>
+          {list.length ? (
+            <tfoot>
+              <tr>
+                <th colSpan={2}>Total</th>
+                <th colSpan={3}>{copies} copies</th>
+                <th>{money(total)}</th>
+              </tr>
+            </tfoot>
+          ) : null}
         </table>
       ) : (
         <table>
@@ -116,17 +128,11 @@ export function SheetView({ kind, month }) {
             </tr>
           </thead>
           <tbody>
-            {(rows || []).map((row, index) => (
+            {list.map((row, index) => (
               <tr key={row.id || `${row.dest}-${index}`}>
                 <td>{row.dest === "hq" ? "Headquarters" : "Patron"}</td>
                 <td>{row.recipient}</td>
-                <td>
-                  {row.address_missing
-                    ? "Address missing"
-                    : [row.line1, row.line2, row.city, row.region, row.postal_code, row.country]
-                        .filter(Boolean)
-                        .join(", ")}
-                </td>
+                <td>{row.address_missing ? "Address missing" : addressLine(row)}</td>
                 <td>{row.tracking}</td>
               </tr>
             ))}
